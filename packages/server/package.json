@@ -6,8 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "test": "vitest run",
