@@ -1,9 +1,16 @@
 /**
  * Session-aware logging system with pluggable storage providers
  * Default: IndexedDB storage with session grouping
+ * Development: Zustand storage for reactive updates
+ * Optional: Sentry-compatible API integration
  */
 
+import { create } from "zustand";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
+
+// Sentry-compatible severity levels
+export type SentrySeverity = "fatal" | "error" | "warning" | "info" | "debug";
 
 export interface LogEntry {
   id?: number;
@@ -14,6 +21,10 @@ export interface LogEntry {
   message: string;
   data?: Record<string, any>;
   stack?: string;
+  // Sentry-compatible fields
+  tags?: Record<string, string>;
+  user?: SentryUser;
+  fingerprint?: string[];
 }
 
 export interface LogSession {
@@ -23,6 +34,83 @@ export interface LogSession {
   endTime?: number;
   logCount: number;
   metadata?: Record<string, any>;
+}
+
+// Sentry-compatible types
+export interface SentryUser {
+  id?: string;
+  email?: string;
+  username?: string;
+  ip_address?: string;
+}
+
+export interface SentryBreadcrumb {
+  type?: string;
+  category?: string;
+  message?: string;
+  data?: Record<string, any>;
+  level?: SentrySeverity;
+  timestamp?: number;
+}
+
+export interface SentryEvent {
+  event_id: string;
+  timestamp: number;
+  platform: string;
+  level: SentrySeverity;
+  logger?: string;
+  transaction?: string;
+  server_name?: string;
+  release?: string;
+  environment?: string;
+  message?: { formatted: string };
+  exception?: {
+    values: Array<{
+      type: string;
+      value: string;
+      stacktrace?: { frames: Array<{ filename: string; lineno?: number; colno?: number; function?: string }> };
+    }>;
+  };
+  tags?: Record<string, string>;
+  contexts?: Record<string, Record<string, any>>;
+  user?: SentryUser;
+  breadcrumbs?: { values: SentryBreadcrumb[] };
+  fingerprint?: string[];
+  extra?: Record<string, any>;
+}
+
+export interface SentryDSN {
+  protocol: string;
+  publicKey: string;
+  host: string;
+  projectId: string;
+}
+
+// Parse Sentry DSN string
+export function parseSentryDSN(dsn: string): SentryDSN | null {
+  try {
+    const url = new URL(dsn);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    return {
+      protocol: url.protocol.replace(":", ""),
+      publicKey: url.username,
+      host: url.host,
+      projectId: pathParts[pathParts.length - 1] || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Map log levels to Sentry severity
+export function toSentrySeverity(level: LogLevel): SentrySeverity {
+  const map: Record<LogLevel, SentrySeverity> = {
+    debug: "debug",
+    info: "info",
+    warn: "warning",
+    error: "error",
+  };
+  return map[level];
 }
 
 export interface StorageProvider {
@@ -508,6 +596,539 @@ export class MemoryStorageProvider implements StorageProvider {
   }
 }
 
+// Zustand Store for reactive log state
+interface LogStoreState {
+  sessions: Map<string, LogSession>;
+  logs: LogEntry[];
+  nextLogId: number;
+}
+
+interface LogStoreActions {
+  addSession: (session: LogSession) => void;
+  updateSession: (sessionId: string, updates: Partial<LogSession>) => void;
+  removeSession: (sessionId: string) => void;
+  clearSessions: () => void;
+  addLog: (entry: LogEntry) => void;
+  removeLogs: (sessionId?: string) => void;
+  clearAll: () => void;
+}
+
+type LogStore = LogStoreState & LogStoreActions;
+
+// Create the Zustand store - exported for direct subscription in components
+export const useLogStore = create<LogStore>((set, get) => ({
+  sessions: new Map(),
+  logs: [],
+  nextLogId: 1,
+
+  addSession: (session) => {
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      newSessions.set(session.id, { ...session });
+      return { sessions: newSessions };
+    });
+  },
+
+  updateSession: (sessionId, updates) => {
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const newSessions = new Map(state.sessions);
+      newSessions.set(sessionId, { ...session, ...updates });
+      return { sessions: newSessions };
+    });
+  },
+
+  removeSession: (sessionId) => {
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      newSessions.delete(sessionId);
+      const newLogs = state.logs.filter((log) => log.sessionId !== sessionId);
+      return { sessions: newSessions, logs: newLogs };
+    });
+  },
+
+  clearSessions: () => {
+    set({ sessions: new Map(), logs: [], nextLogId: 1 });
+  },
+
+  addLog: (entry) => {
+    set((state) => {
+      const logWithId = { ...entry, id: state.nextLogId };
+      const newLogs = [...state.logs, logWithId];
+
+      // Update session log count
+      const session = state.sessions.get(entry.sessionId);
+      if (session) {
+        const newSessions = new Map(state.sessions);
+        newSessions.set(entry.sessionId, {
+          ...session,
+          logCount: session.logCount + 1,
+        });
+        return { logs: newLogs, nextLogId: state.nextLogId + 1, sessions: newSessions };
+      }
+
+      return { logs: newLogs, nextLogId: state.nextLogId + 1 };
+    });
+  },
+
+  removeLogs: (sessionId) => {
+    set((state) => {
+      if (sessionId) {
+        const deletedCount = state.logs.filter((log) => log.sessionId === sessionId).length;
+        const newLogs = state.logs.filter((log) => log.sessionId !== sessionId);
+
+        // Update session log count
+        const session = state.sessions.get(sessionId);
+        if (session) {
+          const newSessions = new Map(state.sessions);
+          newSessions.set(sessionId, {
+            ...session,
+            logCount: Math.max(0, session.logCount - deletedCount),
+          });
+          return { logs: newLogs, sessions: newSessions };
+        }
+
+        return { logs: newLogs };
+      }
+      return { logs: [] };
+    });
+  },
+
+  clearAll: () => {
+    set({ sessions: new Map(), logs: [], nextLogId: 1 });
+  },
+}));
+
+// Zustand Storage Provider - uses reactive Zustand store
+export class ZustandStorageProvider implements StorageProvider {
+  readonly name = "Zustand";
+
+  isReady(): boolean {
+    return true; // Zustand is always ready
+  }
+
+  async init(): Promise<void> {
+    // Nothing to initialize - Zustand store is created on import
+  }
+
+  async close(): Promise<void> {
+    useLogStore.getState().clearAll();
+  }
+
+  async createSession(session: LogSession): Promise<void> {
+    useLogStore.getState().addSession(session);
+  }
+
+  async endSession(sessionId: string, endTime: number): Promise<void> {
+    useLogStore.getState().updateSession(sessionId, { endTime });
+  }
+
+  async getSessions(limit = 50): Promise<LogSession[]> {
+    const { sessions } = useLogStore.getState();
+    return Array.from(sessions.values())
+      .sort((a, b) => b.startTime - a.startTime)
+      .slice(0, limit);
+  }
+
+  async getSession(sessionId: string): Promise<LogSession | null> {
+    return useLogStore.getState().sessions.get(sessionId) || null;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    useLogStore.getState().removeSession(sessionId);
+  }
+
+  async clearAllSessions(): Promise<void> {
+    useLogStore.getState().clearAll();
+  }
+
+  async saveLog(entry: LogEntry): Promise<void> {
+    useLogStore.getState().addLog(entry);
+  }
+
+  async getLogs(options: {
+    sessionId?: string;
+    level?: LogLevel;
+    startTime?: number;
+    endTime?: number;
+    limit?: number;
+  } = {}): Promise<LogEntry[]> {
+    const { sessionId, level, startTime, endTime, limit = 100 } = options;
+    let { logs } = useLogStore.getState();
+
+    if (sessionId) {
+      logs = logs.filter((log) => log.sessionId === sessionId);
+    }
+    if (level) {
+      logs = logs.filter((log) => log.level === level);
+    }
+    if (startTime) {
+      logs = logs.filter((log) => log.timestamp >= startTime);
+    }
+    if (endTime) {
+      logs = logs.filter((log) => log.timestamp <= endTime);
+    }
+
+    return logs.slice(-limit);
+  }
+
+  async clearLogs(sessionId?: string): Promise<void> {
+    useLogStore.getState().removeLogs(sessionId);
+  }
+
+  async getLogCount(sessionId?: string): Promise<number> {
+    const { logs } = useLogStore.getState();
+    if (sessionId) {
+      return logs.filter((log) => log.sessionId === sessionId).length;
+    }
+    return logs.length;
+  }
+}
+
+// Sentry-compatible Storage Provider - sends events to Sentry API
+export interface SentryConfig {
+  dsn?: string;
+  environment?: string;
+  release?: string;
+  serverName?: string;
+  sampleRate?: number;
+  beforeSend?: (event: SentryEvent) => SentryEvent | null;
+  enabled?: boolean;
+}
+
+export class SentryStorageProvider implements StorageProvider {
+  readonly name = "Sentry";
+  private config: SentryConfig;
+  private parsedDSN: SentryDSN | null = null;
+  private sessions = new Map<string, LogSession>();
+  private breadcrumbs: SentryBreadcrumb[] = [];
+  private maxBreadcrumbs = 100;
+  private user: SentryUser | null = null;
+  private tags: Record<string, string> = {};
+  private contexts: Record<string, Record<string, any>> = {};
+  private initialized = false;
+
+  constructor(config: SentryConfig = {}) {
+    this.config = {
+      enabled: true,
+      sampleRate: 1.0,
+      environment: isDevelopment ? "development" : "production",
+      ...config,
+    };
+
+    if (config.dsn) {
+      this.parsedDSN = parseSentryDSN(config.dsn);
+    }
+  }
+
+  isReady(): boolean {
+    return this.initialized;
+  }
+
+  async init(): Promise<void> {
+    this.initialized = true;
+
+    // Add browser context
+    this.setContext("browser", {
+      name: navigator.userAgent,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    });
+
+    // Add OS context if available
+    this.setContext("os", {
+      name: navigator.platform,
+    });
+  }
+
+  async close(): Promise<void> {
+    this.sessions.clear();
+    this.breadcrumbs = [];
+    this.initialized = false;
+  }
+
+  // Sentry-specific methods
+  setUser(user: SentryUser | null): void {
+    this.user = user;
+  }
+
+  setTag(key: string, value: string): void {
+    this.tags[key] = value;
+  }
+
+  setTags(tags: Record<string, string>): void {
+    this.tags = { ...this.tags, ...tags };
+  }
+
+  setContext(name: string, context: Record<string, any> | null): void {
+    if (context === null) {
+      delete this.contexts[name];
+    } else {
+      this.contexts[name] = context;
+    }
+  }
+
+  addBreadcrumb(breadcrumb: Omit<SentryBreadcrumb, "timestamp">): void {
+    this.breadcrumbs.push({
+      ...breadcrumb,
+      timestamp: Date.now() / 1000, // Sentry uses seconds
+    });
+
+    if (this.breadcrumbs.length > this.maxBreadcrumbs) {
+      this.breadcrumbs = this.breadcrumbs.slice(-this.maxBreadcrumbs);
+    }
+  }
+
+  clearBreadcrumbs(): void {
+    this.breadcrumbs = [];
+  }
+
+  // Convert LogEntry to Sentry Event
+  private toSentryEvent(entry: LogEntry): SentryEvent {
+    const eventId = this.generateEventId();
+
+    const event: SentryEvent = {
+      event_id: eventId,
+      timestamp: entry.timestamp / 1000, // Sentry uses seconds
+      platform: "javascript",
+      level: toSentrySeverity(entry.level),
+      logger: entry.context,
+      environment: this.config.environment,
+      release: this.config.release,
+      server_name: this.config.serverName,
+      message: { formatted: entry.message },
+      tags: { ...this.tags, ...entry.tags },
+      contexts: { ...this.contexts },
+      user: entry.user || this.user || undefined,
+      breadcrumbs: { values: [...this.breadcrumbs] },
+      fingerprint: entry.fingerprint,
+      extra: entry.data,
+    };
+
+    // Add exception if there's a stack trace
+    if (entry.stack) {
+      event.exception = {
+        values: [{
+          type: entry.context,
+          value: entry.message,
+          stacktrace: this.parseStackTrace(entry.stack),
+        }],
+      };
+    }
+
+    return event;
+  }
+
+  private parseStackTrace(stack: string): { frames: Array<{ filename: string; lineno?: number; colno?: number; function?: string }> } {
+    const frames = stack
+      .split("\n")
+      .slice(1) // Skip the error message line
+      .map((line) => {
+        const match = line.match(/at\s+(?:(.+?)\s+)?\(?(.+?):(\d+):(\d+)\)?/);
+        if (match) {
+          return {
+            function: match[1] || "<anonymous>",
+            filename: match[2],
+            lineno: parseInt(match[3], 10),
+            colno: parseInt(match[4], 10),
+          };
+        }
+        return { filename: line.trim(), function: "<unknown>" };
+      })
+      .reverse(); // Sentry expects frames in reverse order
+
+    return { frames };
+  }
+
+  private generateEventId(): string {
+    return "xxxxxxxxxxxxxxxxxxxxxxxxxxxx".replace(/x/g, () =>
+      Math.floor(Math.random() * 16).toString(16)
+    );
+  }
+
+  // Send event to Sentry API
+  private async sendToSentry(event: SentryEvent): Promise<void> {
+    if (!this.config.enabled || !this.parsedDSN) {
+      return;
+    }
+
+    // Apply sample rate
+    if (Math.random() > (this.config.sampleRate || 1)) {
+      return;
+    }
+
+    // Apply beforeSend hook
+    if (this.config.beforeSend) {
+      const modifiedEvent = this.config.beforeSend(event);
+      if (!modifiedEvent) return;
+      event = modifiedEvent;
+    }
+
+    const { protocol, publicKey, host, projectId } = this.parsedDSN;
+    const url = `${protocol}://${host}/api/${projectId}/store/`;
+
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Sentry-Auth": `Sentry sentry_version=7, sentry_client=kimi-logger/1.0, sentry_key=${publicKey}`,
+        },
+        body: JSON.stringify(event),
+      });
+    } catch (err) {
+      console.warn("[SentryProvider] Failed to send event:", err);
+    }
+  }
+
+  // Sentry-style capture methods
+  captureMessage(message: string, level: LogLevel = "info"): string {
+    const event = this.toSentryEvent({
+      sessionId: "",
+      timestamp: Date.now(),
+      level,
+      context: "captureMessage",
+      message,
+    });
+
+    this.sendToSentry(event);
+    return event.event_id;
+  }
+
+  captureException(error: Error, context?: Record<string, any>): string {
+    const event = this.toSentryEvent({
+      sessionId: "",
+      timestamp: Date.now(),
+      level: "error",
+      context: error.name || "Error",
+      message: error.message,
+      stack: error.stack,
+      data: context,
+    });
+
+    this.sendToSentry(event);
+    return event.event_id;
+  }
+
+  captureEvent(event: Partial<SentryEvent>): string {
+    const fullEvent: SentryEvent = {
+      event_id: this.generateEventId(),
+      timestamp: Date.now() / 1000,
+      platform: "javascript",
+      level: "info",
+      ...event,
+    } as SentryEvent;
+
+    this.sendToSentry(fullEvent);
+    return fullEvent.event_id;
+  }
+
+  // StorageProvider interface implementation
+  async createSession(session: LogSession): Promise<void> {
+    this.sessions.set(session.id, { ...session });
+    this.addBreadcrumb({
+      category: "session",
+      message: `Session started: ${session.name}`,
+      level: "info",
+    });
+  }
+
+  async endSession(sessionId: string, endTime: number): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.endTime = endTime;
+      this.addBreadcrumb({
+        category: "session",
+        message: `Session ended: ${session.name}`,
+        level: "info",
+      });
+    }
+  }
+
+  async getSessions(limit = 50): Promise<LogSession[]> {
+    return Array.from(this.sessions.values())
+      .sort((a, b) => b.startTime - a.startTime)
+      .slice(0, limit);
+  }
+
+  async getSession(sessionId: string): Promise<LogSession | null> {
+    return this.sessions.get(sessionId) || null;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.sessions.delete(sessionId);
+  }
+
+  async clearAllSessions(): Promise<void> {
+    this.sessions.clear();
+    this.breadcrumbs = [];
+  }
+
+  async saveLog(entry: LogEntry): Promise<void> {
+    // Add as breadcrumb for non-error logs
+    if (entry.level !== "error") {
+      this.addBreadcrumb({
+        category: entry.context,
+        message: entry.message,
+        level: toSentrySeverity(entry.level),
+        data: entry.data,
+      });
+    }
+
+    // Send errors to Sentry
+    if (entry.level === "error" || entry.level === "warn") {
+      const event = this.toSentryEvent(entry);
+      await this.sendToSentry(event);
+    }
+
+    // Update session log count
+    const session = this.sessions.get(entry.sessionId);
+    if (session) {
+      session.logCount++;
+    }
+  }
+
+  async getLogs(): Promise<LogEntry[]> {
+    // Sentry doesn't store logs locally, return empty
+    // Use breadcrumbs for recent activity
+    return [];
+  }
+
+  async clearLogs(): Promise<void> {
+    this.clearBreadcrumbs();
+  }
+
+  async getLogCount(): Promise<number> {
+    return this.breadcrumbs.length;
+  }
+}
+
+// Sentry-compatible API wrapper for drop-in replacement
+export function createSentryCompatibleLogger(config: SentryConfig = {}) {
+  const provider = new SentryStorageProvider(config);
+
+  return {
+    init: () => provider.init(),
+
+    // Sentry-style methods
+    captureMessage: (message: string, level?: LogLevel) => provider.captureMessage(message, level),
+    captureException: (error: Error, context?: Record<string, any>) => provider.captureException(error, context),
+    captureEvent: (event: Partial<SentryEvent>) => provider.captureEvent(event),
+
+    // Scope methods
+    setUser: (user: SentryUser | null) => provider.setUser(user),
+    setTag: (key: string, value: string) => provider.setTag(key, value),
+    setTags: (tags: Record<string, string>) => provider.setTags(tags),
+    setContext: (name: string, context: Record<string, any> | null) => provider.setContext(name, context),
+
+    // Breadcrumbs
+    addBreadcrumb: (breadcrumb: Omit<SentryBreadcrumb, "timestamp">) => provider.addBreadcrumb(breadcrumb),
+
+    // Get the provider for use with Logger
+    getProvider: () => provider,
+  };
+}
+
 interface LoggerConfig {
   enabled: boolean;
   logLevel: LogLevel;
@@ -525,7 +1146,10 @@ const LOG_LEVELS = {
   error: 3,
 };
 
-const isDevelopment = (import.meta as any).env?.DEV === true;
+const isDevelopment = !!(import.meta as any).env?.DEV;
+
+// Debug: Log which mode we're in
+console.log("[Logger] isDevelopment:", isDevelopment, "DEV value:", (import.meta as any).env?.DEV);
 
 class Logger {
   private config: LoggerConfig;
@@ -578,7 +1202,12 @@ class Logger {
 
   // Session Management
   async startSession(name?: string, metadata?: Record<string, any>): Promise<LogSession> {
-    await this.ready();
+    // Wait for store to be ready, but don't wait for full init (avoids deadlock)
+    // The store.init() is called first in init(), so by the time startSession
+    // is called from init(), the store is already ready
+    while (!this.store.isReady()) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
 
     // End current session if exists
     if (this.currentSession && !this.currentSession.endTime) {
@@ -680,14 +1309,23 @@ class Logger {
 
     // Ensure we have a session (async from here)
     if (!this.currentSession) {
+      console.log("[Logger] No session, awaiting startSession...");
       await this.startSession();
-      // Update the entry's sessionId now that we have a real session
-      entry.sessionId = this.currentSession!.id;
+    }
+
+    // Update entry sessionId if we now have a session
+    if (this.currentSession && entry.sessionId === "pending_session") {
+      console.log("[Logger] Session started:", this.currentSession.id);
+      entry.sessionId = this.currentSession.id;
     }
 
     // Store in persistent storage
     try {
+      console.log("[Logger] Saving to store:", this.store.name, "entry:", entry.message.substring(0, 30));
       await this.store.saveLog(entry);
+      console.log("[Logger] Saved successfully, store logs:",
+        this.store.name === "Zustand" ? useLogStore.getState().logs.length : "N/A"
+      );
       if (this.currentSession) {
         this.currentSession.logCount++;
       }
@@ -836,18 +1474,83 @@ class Logger {
   isStorageReady(): boolean {
     return this.store.isReady();
   }
+
+  // Sentry-compatible methods (delegate to provider if it's Sentry)
+  private getSentryProvider(): SentryStorageProvider | null {
+    return this.store instanceof SentryStorageProvider ? this.store : null;
+  }
+
+  captureMessage(message: string, level: LogLevel = "info"): string | null {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      return sentry.captureMessage(message, level);
+    }
+    this.log(level, "captureMessage", message);
+    return null;
+  }
+
+  captureException(error: Error, context?: Record<string, any>): string | null {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      return sentry.captureException(error, context);
+    }
+    this.error("Exception", error.message, { ...context, stack: error.stack });
+    return null;
+  }
+
+  setUser(user: SentryUser | null): void {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      sentry.setUser(user);
+    }
+  }
+
+  setTag(key: string, value: string): void {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      sentry.setTag(key, value);
+    }
+  }
+
+  setTags(tags: Record<string, string>): void {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      sentry.setTags(tags);
+    }
+  }
+
+  setContext(name: string, context: Record<string, any> | null): void {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      sentry.setContext(name, context);
+    }
+  }
+
+  addBreadcrumb(breadcrumb: Omit<SentryBreadcrumb, "timestamp">): void {
+    const sentry = this.getSentryProvider();
+    if (sentry) {
+      sentry.addBreadcrumb(breadcrumb);
+    }
+  }
 }
 
-// Create singleton instance with IndexedDB storage
+// Create singleton instance
+// Use Zustand in development for reactive updates, IndexedDB in production for persistence
+const storeProvider = isDevelopment ? new ZustandStorageProvider() : new IndexedDBStorageProvider();
+console.log("[Logger] Using storage provider:", storeProvider.name, "isDevelopment:", isDevelopment);
+
 const logger = new Logger({
   enabled: true,
   logLevel: "debug",
   enableConsole: true,
   autoStartSession: true,
   maxMemoryLogs: 100,
+  storeProvider,
 });
 
 // Setup global error handlers
 logger.setupGlobalErrorHandler();
 
+// Default export is the singleton instance
+// All classes and types are already exported inline
 export default logger;
