@@ -525,6 +525,8 @@ const LOG_LEVELS = {
   error: 3,
 };
 
+const isDevelopment = (import.meta as any).env?.DEV === true;
+
 class Logger {
   private config: LoggerConfig;
   private store: StorageProvider;
@@ -544,7 +546,7 @@ class Logger {
 
     // Use provided provider or default to IndexedDB
     this.store = this.config.storeProvider || new IndexedDBStorageProvider();
-    
+
     // Initialize storage
     this.initPromise = this.init();
   }
@@ -653,13 +655,11 @@ class Logger {
   private async log(level: LogLevel, context: string, message: string, data?: Record<string, any>) {
     if (!this.shouldLog(level)) return;
 
-    // Ensure we have a session
-    if (!this.currentSession) {
-      await this.startSession();
-    }
+    // Use current session ID or a pending placeholder
+    const sessionId = this.currentSession?.id || "pending_session";
 
     const entry: LogEntry = {
-      sessionId: this.currentSession!.id,
+      sessionId,
       timestamp: Date.now(),
       level,
       context,
@@ -667,15 +667,22 @@ class Logger {
       data,
     };
 
-    // Console output
+    // Console output - do this synchronously
     if (this.config.enableConsole) {
       this.outputToConsole(entry);
     }
 
-    // Store in memory
+    // Store in memory SYNCHRONOUSLY - this ensures logs are visible immediately
     this.memoryLogs.push(entry);
     if (this.memoryLogs.length > this.config.maxMemoryLogs) {
       this.memoryLogs = this.memoryLogs.slice(-this.config.maxMemoryLogs);
+    }
+
+    // Ensure we have a session (async from here)
+    if (!this.currentSession) {
+      await this.startSession();
+      // Update the entry's sessionId now that we have a real session
+      entry.sessionId = this.currentSession!.id;
     }
 
     // Store in persistent storage
@@ -695,16 +702,19 @@ class Logger {
     const sessionName = this.currentSession?.name || "unknown";
     const base = `[${time}] [${level}] [${sessionName}] ${entry.context}: ${entry.message}`;
 
-    const consoleMethod = entry.level === "error" 
-      ? "error" 
-      : entry.level === "warn" 
-        ? "warn" 
+    const consoleMethod = entry.level === "error"
+      ? "error"
+      : entry.level === "warn"
+        ? "warn"
         : "log";
 
+    // In development, always use console.log for better visibility
+    const devConsoleMethod = isDevelopment ? "log" : consoleMethod;
+
     if (entry.data && Object.keys(entry.data).length > 0) {
-      console[consoleMethod](base, entry.data);
+      console[devConsoleMethod](base, entry.data);
     } else {
-      console[consoleMethod](base);
+      console[devConsoleMethod](base);
     }
   }
 
@@ -731,8 +741,9 @@ class Logger {
 
   // Query Methods
   getMemoryLogs(level?: LogLevel): LogEntry[] {
-    if (!level) return [...this.memoryLogs];
-    return this.memoryLogs.filter(log => log.level === level);
+    return level
+      ? this.memoryLogs.filter(log => log.level === level)
+      : [...this.memoryLogs];
   }
 
   clearMemoryLogs() {
