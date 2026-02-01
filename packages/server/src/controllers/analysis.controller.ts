@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AnalyzeFileRequest, AnalyzeFileResponse, SSEEvent } from "@kimi-excel/shared";
+import { ErrorCode } from "@kimi-excel/shared";
 import { getKimiService } from "../services/kimi.service.js";
 import { AppError } from "../middlewares/error-handler.middleware.js";
 
@@ -13,11 +14,11 @@ export async function analyzeFile(req: Request<{ id: string }>, res: Response, n
     const body = req.body as AnalyzeFileRequest;
 
     if (!id) {
-      throw new AppError(400, "File ID is required");
+      throw AppError.badRequest("File ID is required", ErrorCode.VALIDATION_ERROR);
     }
 
     if (!body.question) {
-      throw new AppError(400, "Question is required");
+      throw AppError.badRequest("Question is required", ErrorCode.VALIDATION_ERROR);
     }
 
     const kimiService = getKimiService();

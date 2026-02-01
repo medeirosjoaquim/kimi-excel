@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { UploadFileResponse, ListFilesResponse, GetFileResponse, DeleteFileResponse } from "@kimi-excel/shared";
+import { ErrorCode } from "@kimi-excel/shared";
 import type { FileUploadRequest } from "../types/index.js";
 import { getKimiService } from "../services/kimi.service.js";
 import { AppError } from "../middlewares/error-handler.middleware.js";
@@ -8,7 +9,7 @@ import * as fs from "node:fs";
 export async function uploadFile(req: FileUploadRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     if (!req.file) {
-      throw new AppError(400, "No file uploaded");
+      throw AppError.badRequest("No file uploaded", ErrorCode.FILE_UPLOAD_ERROR);
     }
 
     const kimiService = getKimiService();
@@ -63,7 +64,7 @@ export async function getFile(req: Request<{ id: string }>, res: Response, next:
     const { id } = req.params;
 
     if (!id) {
-      throw new AppError(400, "File ID is required");
+      throw AppError.badRequest("File ID is required", ErrorCode.VALIDATION_ERROR);
     }
 
     const kimiService = getKimiService();
@@ -90,7 +91,7 @@ export async function deleteFile(req: Request<{ id: string }>, res: Response, ne
     const { id } = req.params;
 
     if (!id) {
-      throw new AppError(400, "File ID is required");
+      throw AppError.badRequest("File ID is required", ErrorCode.VALIDATION_ERROR);
     }
 
     const kimiService = getKimiService();
