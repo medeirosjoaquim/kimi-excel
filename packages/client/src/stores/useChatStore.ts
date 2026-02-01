@@ -19,6 +19,7 @@ interface ChatState {
 
 interface ChatActions {
   loadMessages: (conversationId: string) => ChatMessage[];
+  getMessages: (conversationId: string | null) => ChatMessage[];
   sendMessage: (
     conversationId: string,
     content: string,
@@ -58,14 +59,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return loaded;
   },
 
+  getMessages: (conversationId: string | null) => {
+    if (!conversationId) return [];
+    const { messages } = get();
+    return messages[conversationId] ?? [];
+  },
+
   sendMessage: (conversationId, content, attachments, fileIds, options = {}) => {
-    logger.info("ChatStore", "sendMessage called", {
-      conversationId,
-      contentLength: content.length,
-      attachmentCount: attachments.length,
-      fileIds,
-      options,
-    });
+    logger.info("ChatStore", `sendMessage: conv=${conversationId}, content=${content.length} chars, attachments=${attachments.length}, fileIds=${fileIds.length}`);
 
     // Abort any ongoing stream
     get().abortStream();
@@ -95,9 +96,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const updatedMessages = [...conversationMessages, userMessage, assistantMessage];
 
-    logger.debug("ChatStore", "Setting state with messages", {
-      updatedMessagesCount: updatedMessages.length,
-    });
+    logger.debug("ChatStore", `Setting state: ${updatedMessages.length} messages for conv ${conversationId}`);
 
     set({
       messages: { ...messages, [conversationId]: updatedMessages },
@@ -108,7 +107,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     // Save user message immediately
     storage.saveMessages(conversationId, [...conversationMessages, userMessage]);
-    logger.debug("ChatStore", "User message saved to storage");
+    logger.debug("ChatStore", "User message saved");
 
     // Build conversation history for context
     const historyMessages = conversationMessages
@@ -118,9 +117,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: m.content,
       }));
 
-    logger.debug("ChatStore", "Calling api.chatStream", {
-      historyMessagesCount: historyMessages.length,
-    });
+    logger.debug("ChatStore", `Calling api.chatStream with ${historyMessages.length} history messages`);
 
     try {
       const controller = api.chatStream(
@@ -133,13 +130,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         },
         {
           onChunk: (chunk) => {
-            logger.debug("ChatStore", "onChunk received", {
-              chunkLength: chunk.length,
-              chunkPreview: chunk.substring(0, 50),
-            });
+            logger.debug("ChatStore", `onChunk: "${chunk.substring(0, 30)}..."`);
             const { messages } = get();
             const convMessages = messages[conversationId] ?? [];
             const lastIdx = convMessages.length - 1;
+            logger.debug("ChatStore", `Updating message ${lastIdx}, current length: ${convMessages[lastIdx]?.content?.length || 0}`);
             if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
               const updatedMsg = {
                 ...convMessages[lastIdx],
@@ -147,6 +142,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               };
               const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
               set({ messages: { ...messages, [conversationId]: newMessages } });
+              logger.debug("ChatStore", `Message updated, new length: ${updatedMsg.content.length}`);
+            } else {
+              logger.warn("ChatStore", "Cannot update message - assistant message not found");
             }
           },
           onToolCall: (toolCall: KimiPluginToolCall) => {
@@ -165,14 +163,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
           },
           onDone: (event) => {
-            logger.info("ChatStore", "onDone received", {
-              contentLength: event.content.length,
-              contentPreview: event.content.substring(0, 100),
-              toolCallsCount: event.toolCalls.length,
-            });
+            logger.info("ChatStore", `onDone: content=${event.content.length} chars, toolCalls=${event.toolCalls.length}`);
             const { messages } = get();
             const convMessages = messages[conversationId] ?? [];
             const lastIdx = convMessages.length - 1;
+            logger.debug("ChatStore", `Finalizing message ${lastIdx}`);
             if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
               const updatedMsg = {
                 ...convMessages[lastIdx],
@@ -187,10 +182,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 abortController: null,
               });
               storage.saveMessages(conversationId, newMessages);
+              logger.info("ChatStore", "Message finalized and saved");
+            } else {
+              logger.warn("ChatStore", "Cannot finalize - assistant message not found");
             }
           },
           onError: (message) => {
-            logger.error("ChatStore", "onError received", { errorMessage: message });
+            logger.error("ChatStore", `onError: ${message}`);
             const { messages } = get();
             const convMessages = messages[conversationId] ?? [];
             // Remove the streaming assistant message on error
@@ -210,10 +208,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       set({ abortController: controller });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error("ChatStore", "Synchronous error in sendMessage", {
-        message: error.message,
-        stack: error.stack,
-      });
+      logger.error("ChatStore", `Synchronous error: ${error.message}`);
       
       // Handle synchronous errors (e.g., network failure before request starts)
       const { messages } = get();
