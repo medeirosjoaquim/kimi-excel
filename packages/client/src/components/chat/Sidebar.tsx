@@ -44,16 +44,23 @@ export function Sidebar() {
   ].join(" ");
 
   return (
-    <aside className={classNames}>
+    <aside 
+      className={classNames}
+      aria-label="Chat sidebar"
+      aria-expanded={sidebarOpen}
+      role="complementary"
+    >
       <div className="sidebar-header">
         <div className="sidebar-brand">
-          <span className="brand-icon" />
+          <span className="brand-icon" aria-hidden="true" />
           <span className="brand-text">Kimi Excel</span>
         </div>
         {!isMobile && (
           <button
             className="sidebar-toggle"
             onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={sidebarOpen}
             title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
             {sidebarOpen ? "<" : ">"}
@@ -70,8 +77,12 @@ export function Sidebar() {
         )}
       </div>
 
-      <button className="new-chat-btn" onClick={handleNewChat}>
-        <span className="new-chat-icon">+</span>
+      <button 
+        className="new-chat-btn" 
+        onClick={handleNewChat}
+        aria-label="Start a new chat"
+      >
+        <span className="new-chat-icon" aria-hidden="true">+</span>
         <span>New Chat</span>
       </button>
 

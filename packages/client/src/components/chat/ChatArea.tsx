@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useChatStore } from "../../stores/useChatStore.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
@@ -13,13 +13,17 @@ export function ChatArea() {
   const messagesMap = useChatStore((s) => s.messages);
   const loadMessages = useChatStore((s) => s.loadMessages);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const error = useChatStore((s) => s.error);
+  const clearError = useChatStore((s) => s.clearError);
 
   const activeConversation = getActive();
+  const prevActiveIdRef = useRef<string | null>(null);
 
   // Load messages on mount or when activeId changes
   useEffect(() => {
     if (activeId) {
       loadMessages(activeId);
+      prevActiveIdRef.current = activeId;
     }
   }, [activeId, loadMessages]);
 
@@ -27,8 +31,40 @@ export function ChatArea() {
   const messages = activeId ? (messagesMap[activeId] ?? []) : [];
   const hasMessages = messages.length > 0;
 
+  // Check if we just switched conversations
+  const justSwitched = activeId !== prevActiveIdRef.current;
+
   return (
-    <main className="chat-area">
+    <main 
+      className="chat-area"
+      role="main"
+      aria-label="Chat conversation"
+    >
+      {/* Live region for status announcements */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {justSwitched && activeId ? "Switched to different conversation" : ""}
+        {isStreaming ? "AI is generating a response..." : ""}
+        {!isStreaming && messages.length > 0 && justSwitched ? "Messages loaded" : ""}
+        {error ? `Error: ${error}` : ""}
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div 
+          className="chat-error-banner" 
+          role="alert"
+          aria-live="assertive"
+        >
+          <span>{error}</span>
+          <button 
+            onClick={clearError}
+            aria-label="Dismiss error message"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {!activeId || (!hasMessages && !isStreaming) ? (
         <WelcomeScreen />
       ) : (
