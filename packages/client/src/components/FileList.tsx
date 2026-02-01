@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import { useFileStore } from "../stores/useFileStore.js";
 import { useAnalysisStore } from "../stores/useAnalysisStore.js";
+import { useConfirmStore } from "../stores/useConfirmStore.js";
 
 export function FileList() {
   const { files, selectedFileId, isLoading, fetchFiles, selectFile, deleteFile } = useFileStore();
   const { clear: clearAnalysis } = useAnalysisStore();
+  const confirm = useConfirmStore((s) => s.confirm);
 
   useEffect(() => {
     fetchFiles();
@@ -22,7 +24,7 @@ export function FileList() {
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (confirm("Are you sure you want to delete this file?")) {
+    if (await confirm("Are you sure you want to delete this file?")) {
       try {
         await deleteFile(id);
       } catch {
