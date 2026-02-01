@@ -2,7 +2,7 @@ import { Router, type Router as RouterType } from "express";
 import multer from "multer";
 import * as path from "node:path";
 import * as os from "node:os";
-import { uploadFile, listFiles, getFile, deleteFile } from "../controllers/files.controller.js";
+import { uploadFile, listFiles, getFile, deleteFile, findDuplicates, deduplicateFiles } from "../controllers/files.controller.js";
 import { analyzeFile } from "../controllers/analysis.controller.js";
 import { chat } from "../controllers/chat.controller.js";
 import { uploadRateLimitMiddleware, analysisRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
@@ -39,6 +39,8 @@ const upload = multer({
 // Files routes
 router.post("/files", uploadRateLimitMiddleware, upload.single("file"), uploadFile);
 router.get("/files", listFiles);
+router.get("/files/duplicates", findDuplicates);
+router.delete("/files/duplicates", deduplicateFiles);
 router.get("/files/:id", getFile);
 router.delete("/files/:id", deleteFile);
 
