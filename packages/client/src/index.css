@@ -2282,27 +2282,84 @@ select:focus-visible,
   z-index: 9001;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   overflow: hidden;
+  transition: all 0.2s ease-out;
+}
+
+.debug-panel-expanded {
+  bottom: 25vh;
+  height: 50vh;
+  max-height: 50vh;
+  width: 600px;
+}
+
+.debug-panel-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-medium);
+  user-select: none;
+}
+
+.debug-panel-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.debug-panel-window-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.debug-window-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.debug-window-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.debug-window-btn-close:hover {
+  background: #e53935;
+  color: white;
 }
 
 .debug-panel-header {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: var(--space-sm);
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border-medium);
   background: var(--bg-elevated);
-}
-
-.debug-panel-header h3 {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
+  align-items: center;
 }
 
 .debug-panel-tabs {
   display: flex;
   gap: var(--space-xs);
+}
+
+.debug-panel-controls {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-left: auto;
 }
 
 .debug-tab {
@@ -2326,12 +2383,6 @@ select:focus-visible,
   background: var(--accent);
   color: var(--bg-primary);
   border-color: var(--accent);
-}
-
-.debug-panel-controls {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
 }
 
 .debug-select {
