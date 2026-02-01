@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import type { FileListItem } from "@kimi-excel/shared";
 import { useFileStore } from "../../stores/useFileStore.js";
 import { useChatStore } from "../../stores/useChatStore.js";
+import { useConfirmStore } from "../../stores/useConfirmStore.js";
 import { api } from "../../api/client.js";
 
 // Strip timestamp prefix from server-generated filenames
@@ -32,6 +33,7 @@ export function AttachmentButton() {
   const pendingAttachments = useChatStore((s) => s.pendingAttachments);
   const addAttachment = useChatStore((s) => s.addAttachment);
   const removeAttachment = useChatStore((s) => s.removeAttachment);
+  const confirm = useConfirmStore((s) => s.confirm);
 
   // Find duplicates when switching to duplicates view
   useEffect(() => {
@@ -69,7 +71,7 @@ export function AttachmentButton() {
 
   const handleDeleteFile = async (e: React.MouseEvent, fileId: string) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this file from Kimi?")) {
+    if (!(await confirm("Are you sure you want to delete this file from Kimi?"))) {
       return;
     }
     setIsDeleting(fileId);
@@ -87,7 +89,7 @@ export function AttachmentButton() {
   };
 
   const handleDeduplicate = async (keep: "newest" | "oldest") => {
-    if (!confirm(`This will delete ${totalDuplicateFiles} duplicate files, keeping the ${keep} version of each. Continue?`)) {
+    if (!(await confirm(`This will delete ${totalDuplicateFiles} duplicate files, keeping the ${keep} version of each. Continue?`))) {
       return;
     }
     try {
