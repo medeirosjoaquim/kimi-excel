@@ -1068,7 +1068,7 @@ main {
 }
 
 .chat-input-textarea {
-  flex: 1;
+  width: 100%;
   background: transparent;
   border: none;
   color: var(--text-primary);
@@ -1091,6 +1091,32 @@ main {
 
 .chat-input-textarea:disabled {
   opacity: 0.6;
+}
+
+.chat-input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.chat-input-form.generating {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.chat-input-form.generating .chat-input-stop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-input-generating {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-style: italic;
+  pointer-events: none;
 }
 
 .chat-input-send,
