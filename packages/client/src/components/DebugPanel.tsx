@@ -1,18 +1,31 @@
-import { useState, useEffect } from "react";
-import { X } from "lucide-react";
-import logger, { type LogEntry, type LogSession } from "../lib/logger.js";
+import { useState, useEffect, useMemo } from "react";
+import { X, Maximize2, Minimize2 } from "lucide-react";
+import logger, { type LogEntry, type LogSession, useLogStore } from "../lib/logger.js";
 import { useChatStore } from "../stores/useChatStore.js";
 import { useConversationStore } from "../stores/useConversationStore.js";
 
+const isDevelopment = !!(import.meta as any).env?.DEV;
+
 export function DebugPanel() {
   const [isOpen, setIsOpen] = useState(false);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [sessions, setSessions] = useState<LogSession[]>([]);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [selectedSession, setSelectedSession] = useState<string>("current");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"logs" | "state" | "sessions">("logs");
   const [currentSession, setCurrentSession] = useState<LogSession | null>(null);
-  const [storageReady, setStorageReady] = useState(false);
+  // In dev mode, Zustand is always ready; start with true to avoid flicker
+  const [storageReady, setStorageReady] = useState(isDevelopment);
+
+  // Debug: Log what mode we're in
+  console.log("[DebugPanel] isDevelopment:", isDevelopment);
+
+  // In dev mode, subscribe directly to Zustand store for reactive updates
+  const zustandLogs = useLogStore((s) => s.logs);
+  const zustandSessions = useLogStore((s) => s.sessions);
+
+  // For non-dev mode, we still need state for polling
+  const [polledLogs, setPolledLogs] = useState<LogEntry[]>([]);
+  const [polledSessions, setPolledSessions] = useState<LogSession[]>([]);
 
   // Subscribe to stores to show real-time state
   const activeConvId = useConversationStore((s) => s.activeId);
@@ -23,26 +36,79 @@ export function DebugPanel() {
 
   const currentMessages = activeConvId ? (messagesMap[activeConvId] ?? []) : [];
 
+  // Compute filtered logs from Zustand store (dev mode) or polled logs (prod mode)
+  const logs = useMemo(() => {
+    const sourceLogs = isDevelopment ? zustandLogs : polledLogs;
+
+    // Debug logging
+    console.log("[DebugPanel] Computing logs:", {
+      isDevelopment,
+      zustandLogsCount: zustandLogs.length,
+      polledLogsCount: polledLogs.length,
+      sourceLogsCount: sourceLogs.length,
+      selectedSession,
+      currentSessionId: logger.getCurrentSession()?.id,
+    });
+
+    let filtered = [...sourceLogs];
+
+    // Filter by session
+    if (selectedSession === "current") {
+      const session = logger.getCurrentSession();
+      if (session) {
+        // Include logs from current session OR pending logs (before session was created)
+        filtered = filtered.filter((log) =>
+          log.sessionId === session.id || log.sessionId === "pending_session"
+        );
+      }
+      // If no session yet, show all logs (including pending)
+    } else if (selectedSession !== "all") {
+      filtered = filtered.filter((log) => log.sessionId === selectedSession);
+    }
+
+    // Filter by level
+    if (selectedLevel !== "all") {
+      filtered = filtered.filter((log) => log.level === selectedLevel);
+    }
+
+    console.log("[DebugPanel] After filtering:", filtered.length, "logs");
+    return filtered.slice(-200);
+  }, [zustandLogs, polledLogs, selectedSession, selectedLevel, currentSession]);
+
+  // Compute sessions list
+  const sessions = useMemo(() => {
+    if (isDevelopment) {
+      return Array.from(zustandSessions.values()).sort((a, b) => b.startTime - a.startTime);
+    }
+    return polledSessions;
+  }, [zustandSessions, polledSessions]);
+
   // Load sessions and current session info
   useEffect(() => {
     if (!isOpen) return;
 
     const updateInfo = async () => {
       await logger.ready();
-      setStorageReady(logger.isStorageReady());
-      const allSessions = await logger.getSessions(20);
-      setSessions(allSessions);
+      // In dev mode, Zustand is always ready
+      setStorageReady(isDevelopment ? true : logger.isStorageReady());
       setCurrentSession(logger.getCurrentSession());
+
+      // Only poll in non-dev mode
+      if (!isDevelopment) {
+        const allSessions = await logger.getSessions(20);
+        setPolledSessions(allSessions);
+      }
     };
 
     updateInfo();
-    const interval = setInterval(updateInfo, 2000);
+    // Poll less frequently in dev mode since we have reactive updates
+    const interval = setInterval(updateInfo, isDevelopment ? 5000 : 2000);
     return () => clearInterval(interval);
   }, [isOpen]);
 
-  // Load logs based on selection
+  // Poll logs only in non-dev mode
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isDevelopment) return;
 
     const updateLogs = async () => {
       let fetchedLogs: LogEntry[] = [];
@@ -51,17 +117,14 @@ export function DebugPanel() {
         const session = logger.getCurrentSession();
         if (session) {
           fetchedLogs = await logger.getLogs({ sessionId: session.id, limit: 200 });
-          // If storage returns no logs, check memory logs
           if (fetchedLogs.length === 0) {
             fetchedLogs = logger.getMemoryLogs();
           }
         } else {
-          // Fall back to memory logs if no active session
           fetchedLogs = logger.getMemoryLogs();
         }
       } else if (selectedSession === "all") {
         fetchedLogs = await logger.getLogs({ limit: 200 });
-        // If storage returns no logs, check memory logs
         if (fetchedLogs.length === 0) {
           fetchedLogs = logger.getMemoryLogs();
         }
@@ -69,19 +132,14 @@ export function DebugPanel() {
         fetchedLogs = await logger.getLogs({ sessionId: selectedSession, limit: 200 });
       }
 
-      // Filter by level if needed
-      if (selectedLevel !== "all") {
-        fetchedLogs = fetchedLogs.filter((log) => log.level === selectedLevel);
-      }
-
-      setLogs(fetchedLogs);
+      setPolledLogs(fetchedLogs);
     };
 
     updateLogs();
     const interval = setInterval(updateLogs, 500);
 
     return () => clearInterval(interval);
-  }, [isOpen, selectedSession, selectedLevel]);
+  }, [isOpen, selectedSession]);
 
   const handleExport = async () => {
     let exported: string;
@@ -113,19 +171,35 @@ export function DebugPanel() {
       if (session) {
         await logger.clearLogs(session.id);
       }
+      // In dev mode, also clear Zustand store
+      if (isDevelopment && session) {
+        useLogStore.getState().removeLogs(session.id);
+      }
     } else if (selectedSession === "all") {
       await logger.clearAllSessions();
+      if (isDevelopment) {
+        useLogStore.getState().clearAll();
+      }
     } else {
       await logger.deleteSession(selectedSession);
+      if (isDevelopment) {
+        useLogStore.getState().removeSession(selectedSession);
+      }
     }
-    setLogs([]);
+    // In non-dev mode, clear polled logs
+    if (!isDevelopment) {
+      setPolledLogs([]);
+    }
   };
 
   const handleNewSession = async () => {
     await logger.startSession(`Debug Session ${new Date().toLocaleTimeString()}`);
-    const sessions = await logger.getSessions(20);
-    setSessions(sessions);
     setCurrentSession(logger.getCurrentSession());
+    // In non-dev mode, manually refresh sessions
+    if (!isDevelopment) {
+      const allSessions = await logger.getSessions(20);
+      setPolledSessions(allSessions);
+    }
   };
 
   if (!isOpen) {
@@ -141,9 +215,28 @@ export function DebugPanel() {
   }
 
   return (
-    <div className="debug-panel">
+    <div className={`debug-panel ${isExpanded ? "debug-panel-expanded" : ""}`}>
+      <div className="debug-panel-titlebar">
+        <span className="debug-panel-title">Debug</span>
+        <div className="debug-panel-window-controls">
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="debug-window-btn"
+            title={isExpanded ? "Collapse panel" : "Expand to half screen"}
+          >
+            {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="debug-window-btn debug-window-btn-close"
+            title="Close debug panel"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
       <div className="debug-panel-header">
-        <h3>Debug</h3>
         <div className="debug-panel-tabs">
           <button
             className={`debug-tab ${activeTab === "logs" ? "active" : ""}`}
@@ -205,14 +298,6 @@ export function DebugPanel() {
           <button onClick={handleClear} className="debug-button" title="Clear logs">
             Clear
           </button>
-
-          <button
-            onClick={() => setIsOpen(false)}
-            className="debug-button"
-            title="Close debug panel"
-          >
-            <X size={16} />
-          </button>
         </div>
       </div>
 
@@ -221,6 +306,9 @@ export function DebugPanel() {
           {logs.length === 0 ? (
             <div className="debug-empty">
               <div>No logs available</div>
+              <div style={{ marginTop: "8px", fontSize: "11px", color: "#888" }}>
+                isDev: {String(isDevelopment)} | zustand: {zustandLogs.length} | polled: {polledLogs.length} | filtered: {logs.length}
+              </div>
               {!storageReady && (
                 <div className="debug-warning" style={{ marginTop: "8px", fontSize: "12px", color: "#f59e0b" }}>
                   Storage not ready yet. Logs are in memory.
@@ -274,6 +362,13 @@ export function DebugPanel() {
               logger.info("DebugPanel", "Test log generated", {
                 timestamp: new Date().toISOString(),
                 test: true,
+              });
+              // Also log the current state
+              console.log("[DebugPanel] After test log:", {
+                zustandLogs: useLogStore.getState().logs.length,
+                zustandSessions: useLogStore.getState().sessions.size,
+                currentSession: logger.getCurrentSession(),
+                memoryLogs: logger.getMemoryLogs().length,
               });
             }}
             className="debug-button"
