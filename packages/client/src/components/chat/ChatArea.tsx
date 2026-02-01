@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useChatStore } from "../../stores/useChatStore.js";
+import { useDebugStore } from "../../stores/useDebugStore.js";
 import logger from "../../lib/logger.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { MessageList } from "./MessageList.js";
@@ -16,6 +17,9 @@ export function ChatArea() {
   const isStreaming = useChatStore((s) => s.isStreaming);
   const error = useChatStore((s) => s.error);
   const clearError = useChatStore((s) => s.clearError);
+
+  // Debug panel visibility
+  const isDebugOpen = useDebugStore((s) => s.isOpen);
 
   const activeConversation = getActive();
   const prevActiveIdRef = useRef<string | null>(null);
@@ -75,15 +79,17 @@ export function ChatArea() {
         </div>
       )}
 
-      {/* Debug overlay */}
-      <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 400 }}>
-        <div>activeId: {activeId || 'null'}</div>
-        <div>messages: {messages.length}</div>
-        <div>isStreaming: {String(isStreaming)}</div>
-        <div>showWelcome: {String(showWelcome)}</div>
-        <div>firstMsg: {messages[0]?.role || 'none'} {messages[0]?.content?.slice(0, 20) || ''}</div>
-        <div>lastMsg: {messages[messages.length-1]?.role || 'none'} {messages[messages.length-1]?.content?.slice(0, 20) || ''}</div>
-      </div>
+      {/* Debug overlay - Matrix style (only shown when debug panel is open) */}
+      {isDebugOpen && (
+        <div className="debug-state-overlay">
+          <div><span className="debug-state-label">activeId:</span> {activeId || 'null'}</div>
+          <div><span className="debug-state-label">messages:</span> {messages.length}</div>
+          <div><span className="debug-state-label">isStreaming:</span> <span className={isStreaming ? 'debug-state-true' : 'debug-state-false'}>{String(isStreaming)}</span></div>
+          <div><span className="debug-state-label">showWelcome:</span> <span className={showWelcome ? 'debug-state-true' : 'debug-state-false'}>{String(showWelcome)}</span></div>
+          <div><span className="debug-state-label">firstMsg:</span> {messages[0]?.role || 'none'} {messages[0]?.content?.slice(0, 20) || ''}</div>
+          <div><span className="debug-state-label">lastMsg:</span> {messages[messages.length-1]?.role || 'none'} {messages[messages.length-1]?.content?.slice(0, 20) || ''}</div>
+        </div>
+      )}
 
       {showWelcome ? (
         <WelcomeScreen />

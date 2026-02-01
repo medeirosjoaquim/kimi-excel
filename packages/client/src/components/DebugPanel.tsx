@@ -3,11 +3,13 @@ import { X, Maximize2, Minimize2 } from "lucide-react";
 import logger, { type LogEntry, type LogSession, useLogStore } from "../lib/logger.js";
 import { useChatStore } from "../stores/useChatStore.js";
 import { useConversationStore } from "../stores/useConversationStore.js";
+import { useDebugStore } from "../stores/useDebugStore.js";
 
 const isDevelopment = !!(import.meta as any).env?.DEV;
 
 export function DebugPanel() {
-  const [isOpen, setIsOpen] = useState(false);
+  const isOpen = useDebugStore((s) => s.isOpen);
+  const setIsOpen = useDebugStore((s) => s.setIsOpen);
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedSession, setSelectedSession] = useState<string>("current");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
@@ -445,7 +447,6 @@ export function DebugPanel() {
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.shiftKey && e.key === "D") {
     e.preventDefault();
-    const toggle = document.querySelector(".debug-toggle") as HTMLButtonElement;
-    if (toggle) toggle.click();
+    useDebugStore.getState().toggle();
   }
 });
