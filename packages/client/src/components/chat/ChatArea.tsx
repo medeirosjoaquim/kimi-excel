@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useChatStore } from "../../stores/useChatStore.js";
+import logger from "../../lib/logger.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { MessageList } from "./MessageList.js";
 import { ChatInput } from "./ChatInput.js";
@@ -34,6 +35,16 @@ export function ChatArea() {
   // Check if we just switched conversations
   const justSwitched = activeId !== prevActiveIdRef.current;
 
+  // Log render state for debugging
+  logger.debug("ChatArea", "Rendering", {
+    activeId,
+    messagesCount: messages.length,
+    hasMessages,
+    isStreaming,
+    justSwitched,
+    shouldShowWelcome: !activeId || (!hasMessages && !isStreaming),
+  });
+
   return (
     <main 
       className="chat-area"
@@ -64,6 +75,14 @@ export function ChatArea() {
           </button>
         </div>
       )}
+
+      {/* Debug info - remove after fixing */}
+      <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 300 }}>
+        <div>activeId: {activeId || 'null'}</div>
+        <div>messages: {messages.length}</div>
+        <div>isStreaming: {String(isStreaming)}</div>
+        <div>showWelcome: {String(!activeId || (!hasMessages && !isStreaming))}</div>
+      </div>
 
       {!activeId || (!hasMessages && !isStreaming) ? (
         <WelcomeScreen />
