@@ -11,6 +11,7 @@ import type {
   ApiErrorResponse,
   KimiPluginToolCall,
 } from "@kimi-excel/shared";
+import logger from "../lib/logger.js";
 
 const API_BASE = "/api";
 
@@ -195,9 +196,12 @@ export const api = {
   ): { abort: () => void } {
     const controller = new AbortController();
 
+    logger.info("API", `chatStream called for conversation ${request.conversationId}`);
+
     (async () => {
       try {
-        console.log("[API] Starting chat stream request");
+        logger.debug("API", `Starting chat stream fetch to ${API_BASE}/chat`);
+
         const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
           headers: {
@@ -208,34 +212,52 @@ export const api = {
           signal: controller.signal,
         });
 
-        console.log("[API] Response status:", response.status);
+        logger.info("API", `Chat stream response: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
-          const errorData = (await response.json()) as ApiErrorResponse;
-          callbacks.onError?.(errorData.message);
+          try {
+            const errorData = (await response.json()) as ApiErrorResponse;
+            logger.error("API", `Chat stream error: ${errorData.message}`);
+            callbacks.onError?.(errorData.message);
+          } catch (e) {
+            logger.error("API", `Chat stream HTTP error: ${response.status}`);
+            callbacks.onError?.(`HTTP ${response.status}`);
+          }
           return;
         }
 
         const reader = response.body?.getReader();
         if (!reader) {
+          logger.error("API", "No response body for chat stream");
           callbacks.onError?.("No response body");
           return;
         }
 
         const decoder = new TextDecoder();
         let buffer = "";
+        let fullContent = "";
+        const allToolCalls: KimiPluginToolCall[] = [];
+        let isDoneReceived = false;
 
-        console.log("[API] Starting to read stream");
+        logger.debug("API", "Starting to read chat stream");
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            console.log("[API] Stream done");
+            logger.debug("API", `Chat stream complete. Content length: ${fullContent.length}, done event: ${isDoneReceived}`);
+            
+            // If we didn't receive an explicit 'done' event, simulate one
+            if (!isDoneReceived && fullContent.length > 0) {
+              logger.info("API", "Stream ended without done event, calling onDone");
+              callbacks.onDone?.({
+                content: fullContent,
+                toolCalls: allToolCalls,
+              });
+            }
             break;
           }
 
           const chunk = decoder.decode(value, { stream: true });
-          console.log("[API] Raw chunk received:", chunk.substring(0, 100));
           buffer += chunk;
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
@@ -244,40 +266,53 @@ export const api = {
             if (line.startsWith("data: ")) {
               try {
                 const event = JSON.parse(line.slice(6)) as SSEEvent;
-                console.log("[API] Parsed event:", event.type);
+                logger.debug("API", `SSE event: ${event.type}`);
+                
                 switch (event.type) {
                   case "chunk":
+                    fullContent += event.content;
                     callbacks.onChunk?.(event.content);
                     break;
                   case "tool_call":
+                    allToolCalls.push(event.toolCall);
                     callbacks.onToolCall?.(event.toolCall);
                     break;
                   case "done":
+                    isDoneReceived = true;
                     callbacks.onDone?.({
-                      content: event.content,
-                      toolCalls: event.toolCalls,
+                      content: event.content || fullContent,
+                      toolCalls: event.toolCalls?.length ? event.toolCalls : allToolCalls,
                     });
                     break;
                   case "error":
+                    logger.warn("API", `SSE error: ${event.message}`);
                     callbacks.onError?.(event.message);
                     break;
                 }
               } catch (e) {
-                console.error("[API] Parse error:", e, "line:", line);
+                logger.warn("API", `Failed to parse SSE: ${e instanceof Error ? e.message : String(e)}`);
               }
             }
           }
         }
       } catch (error) {
-        console.error("[API] Stream error:", error);
-        if (error instanceof Error && error.name !== "AbortError") {
-          callbacks.onError?.(error.message);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isAbort = error instanceof Error && error.name === "AbortError";
+
+        if (!isAbort) {
+          logger.error("API", `Chat stream error: ${errorMsg}`);
+          callbacks.onError?.(errorMsg);
+        } else {
+          logger.debug("API", "Chat stream aborted");
         }
       }
     })();
 
     return {
-      abort: () => controller.abort(),
+      abort: () => {
+        logger.debug("API", "Chat stream abort requested");
+        controller.abort();
+      },
     };
   },
 };
