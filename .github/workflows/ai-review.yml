@@ -1,0 +1,15 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    uses: medeirosjoaquim/opencode-reviews/.github/workflows/opencode-manual-review.yml@main
+    with:
+      review_level: 'medium'
+      review_focus: 'general'
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
