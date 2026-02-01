@@ -144,6 +144,21 @@ export interface DeleteFileResponse {
   id: string;
 }
 
+export interface DuplicateGroup {
+  originalName: string;
+  files: FileListItem[];
+}
+
+export interface FindDuplicatesResponse {
+  duplicates: DuplicateGroup[];
+  totalDuplicateFiles: number;
+}
+
+export interface DeduplicateFilesResponse {
+  deleted: string[];
+  kept: string[];
+}
+
 // Analysis API
 export interface AnalyzeFileRequest {
   question: string;

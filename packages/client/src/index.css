@@ -1387,6 +1387,224 @@ main {
   color: var(--error);
 }
 
+/* ===== ATTACHMENT TABS ===== */
+.attachment-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.attachment-tab {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  transition: all var(--transition-fast);
+}
+
+.attachment-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.attachment-tab.active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tab-badge {
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 0.625rem;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.attachment-tab.active .tab-badge {
+  background: var(--accent-bright);
+}
+
+/* ===== FILE LIST ROW ===== */
+.file-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.file-list-row .file-select-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-delete-btn {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.file-delete-btn:hover {
+  background: var(--error-bg);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.file-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* ===== DUPLICATES VIEW ===== */
+.duplicates-view {
+  padding: var(--space-sm) 0;
+}
+
+.duplicates-loading,
+.no-duplicates {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.813rem;
+  padding: var(--space-lg);
+}
+
+.duplicates-summary {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.duplicates-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.duplicate-group {
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.duplicate-group-name {
+  font-size: 0.813rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.duplicate-files {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.duplicate-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 2px;
+}
+
+.duplicate-file:hover {
+  background: var(--bg-hover);
+}
+
+.duplicate-badge {
+  font-size: 0.625rem;
+  padding: 2px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-medium);
+  border-radius: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.duplicate-file:first-child .duplicate-badge {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.duplicate-date {
+  flex: 1;
+  font-size: 0.688rem;
+  color: var(--text-muted);
+}
+
+.deduplicate-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.deduplicate-btn {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.deduplicate-btn:hover:not(:disabled) {
+  background: var(--accent-bright);
+}
+
+.deduplicate-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.deduplicate-btn.secondary {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-medium);
+}
+
+.deduplicate-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 /* ===== RESPONSIVE CHAT ===== */
 @media (max-width: 768px) {
   .chat-layout > .sidebar {
