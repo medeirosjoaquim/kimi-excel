@@ -9,3 +9,5 @@ export type {
   AnalysisResult,
 } from "./types/kimi.js";
 export { excelPlugin } from "./config/excel-plugin.js";
+export { excelToolsStandard } from "./config/excel-plugin-standard.js";
+export { executeExcelTool, parseFileContent } from "./utils/excel-executor.js";
