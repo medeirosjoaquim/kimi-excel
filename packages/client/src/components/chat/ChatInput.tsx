@@ -3,6 +3,7 @@ import { Mic, MicOff } from "lucide-react";
 import { useChatStore } from "../../stores/useChatStore.js";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useVoiceInput } from "../../hooks/useVoiceInput.js";
+import logger from "../../lib/logger.js";
 import { AttachmentButton } from "./AttachmentButton.js";
 import { AttachmentPreview } from "./AttachmentPreview.js";
 
@@ -41,6 +42,8 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
     clearError: clearVoiceError,
   } = useVoiceInput({
     onTranscript: (transcript, isFinal) => {
+      logger.debug("ChatInput", `Voice transcript: ${transcript.substring(0, 30)}..., final=${isFinal}`);
+
       if (isFinal) {
         // Append final transcript to message, clear interim
         setMessage((prev) => {
@@ -54,15 +57,20 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
       }
     },
     onError: (error) => {
+      logger.warn("ChatInput", `Voice input error: ${error}`);
       voiceError.current = error;
       setVoiceErrorDisplay(error);
     },
   });
 
   const handleVoiceToggle = () => {
+    logger.debug("ChatInput", `Voice toggle: ${isRecording ? "stop" : "start"}`);
+
     if (isRecording) {
+      logger.info("ChatInput", "Stopping voice recording");
       stopRecording();
     } else {
+      logger.info("ChatInput", "Starting voice recording");
       clearVoiceError();
       setVoiceErrorDisplay(null);
       startRecording();
@@ -78,55 +86,71 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
     e?.preventDefault();
 
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || isStreaming) return;
+    logger.debug("ChatInput", `handleSubmit called: "${trimmedMessage.substring(0, 30)}...", streaming=${isStreaming}, conv=${conversationId}`);
 
-    // Create conversation if needed
-    let activeConvId = conversationId;
-    if (!activeConvId) {
-      const newConv = createConversation(pendingAttachments.map((a) => a.fileId));
-      activeConvId = newConv.id;
-    } else {
-      // Add pending attachments to conversation
-      for (const att of pendingAttachments) {
-        addFile(activeConvId, att.fileId);
+    if (!trimmedMessage || isStreaming) {
+      logger.debug("ChatInput", `Submit blocked: ${!trimmedMessage ? "empty message" : "streaming"}`);
+      return;
+    }
+
+    try {
+      // Create conversation if needed
+      let activeConvId = conversationId;
+      if (!activeConvId) {
+        logger.debug("ChatInput", "Creating new conversation");
+        const newConv = createConversation(pendingAttachments.map((a) => a.fileId));
+        activeConvId = newConv.id;
+        logger.info("ChatInput", `New conversation created: ${activeConvId}`);
+      } else {
+        // Add pending attachments to conversation
+        for (const att of pendingAttachments) {
+          addFile(activeConvId, att.fileId);
+        }
       }
+
+      // Generate title from first message if it's a new conversation
+      const conversationFileIds = [
+        ...fileIds,
+        ...pendingAttachments.map((a) => a.fileId),
+      ];
+
+      // Update conversation timestamp
+      updateTimestamp(activeConvId);
+
+      // Generate a title from the first message
+      const isFirstMessage = !conversationId;
+      if (isFirstMessage) {
+        const title =
+          trimmedMessage.length > 30
+            ? trimmedMessage.slice(0, 30) + "..."
+            : trimmedMessage;
+        rename(activeConvId, title);
+      }
+
+      const attachments = pendingAttachments.map((a) => ({
+        fileId: a.fileId,
+        filename: a.filename,
+      }));
+
+      logger.info("ChatInput", `Sending message to ${activeConvId}: ${trimmedMessage.length} chars, ${attachments.length} attachments`);
+
+      sendMessage(
+        activeConvId,
+        trimmedMessage,
+        attachments,
+        conversationFileIds,
+        { usePlugin: false }
+      );
+
+      logger.debug("ChatInput", "Message sent successfully");
+      setMessage("");
+      clearAttachments();
+      clearError();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error("ChatInput", `Error submitting message: ${error.message}`);
+      throw err;
     }
-
-    // Generate title from first message if it's a new conversation
-    const conversationFileIds = [
-      ...fileIds,
-      ...pendingAttachments.map((a) => a.fileId),
-    ];
-
-    // Update conversation timestamp
-    updateTimestamp(activeConvId);
-
-    // Generate a title from the first message
-    const isFirstMessage = !conversationId;
-    if (isFirstMessage) {
-      const title =
-        trimmedMessage.length > 30
-          ? trimmedMessage.slice(0, 30) + "..."
-          : trimmedMessage;
-      rename(activeConvId, title);
-    }
-
-    const attachments = pendingAttachments.map((a) => ({
-      fileId: a.fileId,
-      filename: a.filename,
-    }));
-
-    sendMessage(
-      activeConvId,
-      trimmedMessage,
-      attachments,
-      conversationFileIds,
-      { usePlugin: false }
-    );
-
-    setMessage("");
-    clearAttachments();
-    clearError();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -210,7 +234,7 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
             id="chat-message-input"
             ref={textareaRef}
             className="chat-input-textarea"
-            value={message + interimTranscript}
+            value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask about your Excel files... (or use voice)"
@@ -220,6 +244,11 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
             aria-describedby="message-hint"
             aria-disabled={isStreaming}
           />
+          {isRecording && interimTranscript && (
+            <div className="chat-input-interim" aria-live="polite">
+              {interimTranscript}
+            </div>
+          )}
           <p id="message-hint" className="sr-only">
             Press Enter to send, Shift+Enter for a new line
           </p>
