@@ -3,6 +3,8 @@ import type {
   ListFilesResponse,
   GetFileResponse,
   DeleteFileResponse,
+  FindDuplicatesResponse,
+  DeduplicateFilesResponse,
   AnalyzeFileRequest,
   AnalyzeFileResponse,
   SSEEvent,
@@ -74,6 +76,22 @@ export const api = {
       method: "DELETE",
     });
     return handleResponse<DeleteFileResponse>(response);
+  },
+
+  async findDuplicates(): Promise<FindDuplicatesResponse> {
+    const response = await fetch(`${API_BASE}/files/duplicates`);
+    return handleResponse<FindDuplicatesResponse>(response);
+  },
+
+  async deduplicateFiles(keep: "newest" | "oldest" = "newest"): Promise<DeduplicateFilesResponse> {
+    const response = await fetch(`${API_BASE}/files/duplicates`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ keep }),
+    });
+    return handleResponse<DeduplicateFilesResponse>(response);
   },
 
   async analyzeFile(id: string, request: AnalyzeFileRequest): Promise<AnalyzeFileResponse> {
