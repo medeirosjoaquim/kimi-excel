@@ -9,7 +9,7 @@ interface PendingAttachment {
 }
 
 interface ChatState {
-  messages: Map<string, ChatMessage[]>;
+  messages: Record<string, ChatMessage[]>;
   isStreaming: boolean;
   pendingAttachments: PendingAttachment[];
   error: string | null;
@@ -40,7 +40,7 @@ function generateMessageId(): string {
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  messages: new Map(),
+  messages: {},
   isStreaming: false,
   pendingAttachments: [],
   error: null,
@@ -48,14 +48,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   loadMessages: (conversationId: string) => {
     const { messages } = get();
-    if (messages.has(conversationId)) {
-      return messages.get(conversationId)!;
+    if (messages[conversationId]) {
+      return messages[conversationId];
     }
 
     const loaded = storage.getMessages(conversationId);
-    const updated = new Map(messages);
-    updated.set(conversationId, loaded);
-    set({ messages: updated });
+    set({ messages: { ...messages, [conversationId]: loaded } });
     return loaded;
   },
 
@@ -64,7 +62,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     get().abortStream();
 
     const { messages } = get();
-    const conversationMessages = messages.get(conversationId) ?? [];
+    const conversationMessages = messages[conversationId] ?? [];
 
     // Create user message
     const userMessage: ChatMessage = {
@@ -87,11 +85,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     };
 
     const updatedMessages = [...conversationMessages, userMessage, assistantMessage];
-    const updated = new Map(messages);
-    updated.set(conversationId, updatedMessages);
 
     set({
-      messages: updated,
+      messages: { ...messages, [conversationId]: updatedMessages },
       isStreaming: true,
       error: null,
       pendingAttachments: [],
@@ -118,8 +114,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
       {
         onChunk: (chunk) => {
+          console.log("[Chat] onChunk received:", chunk.substring(0, 50));
           const { messages } = get();
-          const convMessages = messages.get(conversationId) ?? [];
+          const convMessages = messages[conversationId] ?? [];
           const lastIdx = convMessages.length - 1;
           if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
             const updatedMsg = {
@@ -127,14 +124,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               content: convMessages[lastIdx].content + chunk,
             };
             const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            const newMap = new Map(messages);
-            newMap.set(conversationId, newMessages);
-            set({ messages: newMap });
+            set({ messages: { ...messages, [conversationId]: newMessages } });
+            console.log("[Chat] Message updated, content length:", updatedMsg.content.length);
           }
         },
         onToolCall: (toolCall: KimiPluginToolCall) => {
+          console.log("[Chat] onToolCall received:", toolCall);
           const { messages } = get();
-          const convMessages = messages.get(conversationId) ?? [];
+          const convMessages = messages[conversationId] ?? [];
           const lastIdx = convMessages.length - 1;
           if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
             const lastMsg = convMessages[lastIdx];
@@ -143,14 +140,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               toolCalls: [...(lastMsg.toolCalls ?? []), toolCall],
             };
             const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            const newMap = new Map(messages);
-            newMap.set(conversationId, newMessages);
-            set({ messages: newMap });
+            set({ messages: { ...messages, [conversationId]: newMessages } });
           }
         },
         onDone: (event) => {
+          console.log("[Chat] onDone received:", event.content.substring(0, 100));
           const { messages } = get();
-          const convMessages = messages.get(conversationId) ?? [];
+          const convMessages = messages[conversationId] ?? [];
           const lastIdx = convMessages.length - 1;
           if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
             const updatedMsg = {
@@ -160,21 +156,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               isStreaming: false,
             };
             const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            const newMap = new Map(messages);
-            newMap.set(conversationId, newMessages);
-            set({ messages: newMap, isStreaming: false, abortController: null });
+            set({
+              messages: { ...messages, [conversationId]: newMessages },
+              isStreaming: false,
+              abortController: null,
+            });
             storage.saveMessages(conversationId, newMessages);
+            console.log("[Chat] Final message saved, content length:", updatedMsg.content.length);
           }
         },
         onError: (message) => {
+          console.error("[Chat] onError received:", message);
           const { messages } = get();
-          const convMessages = messages.get(conversationId) ?? [];
+          const convMessages = messages[conversationId] ?? [];
           // Remove the streaming assistant message on error
           const withoutStreaming = convMessages.filter((m) => !m.isStreaming);
-          const newMap = new Map(messages);
-          newMap.set(conversationId, withoutStreaming);
           set({
-            messages: newMap,
+            messages: { ...messages, [conversationId]: withoutStreaming },
             isStreaming: false,
             error: message,
             abortController: null,
@@ -194,7 +192,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       // Preserve partial content if we have a conversationId
       if (conversationId) {
-        const convMessages = messages.get(conversationId) ?? [];
+        const convMessages = messages[conversationId] ?? [];
         const lastIdx = convMessages.length - 1;
         if (lastIdx >= 0 && convMessages[lastIdx].isStreaming) {
           const lastMsg = convMessages[lastIdx];
@@ -206,16 +204,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               content: lastMsg.content + "\n\n[Generation stopped]",
             };
             const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            const newMap = new Map(messages);
-            newMap.set(conversationId, newMessages);
-            set({ messages: newMap });
+            set({ messages: { ...messages, [conversationId]: newMessages } });
             storage.saveMessages(conversationId, newMessages);
           } else {
             // Remove empty streaming message
             const newMessages = convMessages.slice(0, lastIdx);
-            const newMap = new Map(messages);
-            newMap.set(conversationId, newMessages);
-            set({ messages: newMap });
+            set({ messages: { ...messages, [conversationId]: newMessages } });
             storage.saveMessages(conversationId, newMessages);
           }
         }

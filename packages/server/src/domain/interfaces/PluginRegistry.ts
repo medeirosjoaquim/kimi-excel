@@ -42,4 +42,10 @@ export interface PluginRegistry {
    * Check if any plugin can handle the given file
    */
   canProcess(file: KimiFileInfo): boolean;
+
+  /**
+   * Get the best plugin for a set of files
+   * Returns null if no single plugin can handle all files
+   */
+  getPluginForFiles(files: KimiFileInfo[]): KimiPlugin | null;
 }

@@ -30,7 +30,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
         <div className={`message-content ${isStreaming ? "streaming" : ""}`}>
-          {message.content || (isStreaming && <span className="typing-indicator">...</span>)}
+          {message.content || (isStreaming && <span className="typing-indicator">Thinking...</span>)}
         </div>
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="message-tool-calls">

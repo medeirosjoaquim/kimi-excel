@@ -179,6 +179,7 @@ export const api = {
 
     (async () => {
       try {
+        console.log("[API] Starting chat stream request");
         const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
           headers: {
@@ -188,6 +189,8 @@ export const api = {
           body: JSON.stringify(request),
           signal: controller.signal,
         });
+
+        console.log("[API] Response status:", response.status);
 
         if (!response.ok) {
           const errorData = (await response.json()) as ApiErrorResponse;
@@ -204,11 +207,18 @@ export const api = {
         const decoder = new TextDecoder();
         let buffer = "";
 
+        console.log("[API] Starting to read stream");
+
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log("[API] Stream done");
+            break;
+          }
 
-          buffer += decoder.decode(value, { stream: true });
+          const chunk = decoder.decode(value, { stream: true });
+          console.log("[API] Raw chunk received:", chunk.substring(0, 100));
+          buffer += chunk;
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
 
@@ -216,6 +226,7 @@ export const api = {
             if (line.startsWith("data: ")) {
               try {
                 const event = JSON.parse(line.slice(6)) as SSEEvent;
+                console.log("[API] Parsed event:", event.type);
                 switch (event.type) {
                   case "chunk":
                     callbacks.onChunk?.(event.content);
@@ -233,13 +244,14 @@ export const api = {
                     callbacks.onError?.(event.message);
                     break;
                 }
-              } catch {
-                // Ignore parse errors
+              } catch (e) {
+                console.error("[API] Parse error:", e, "line:", line);
               }
             }
           }
         }
       } catch (error) {
+        console.error("[API] Stream error:", error);
         if (error instanceof Error && error.name !== "AbortError") {
           callbacks.onError?.(error.message);
         }
