@@ -1,4 +1,35 @@
 // ==========================================
+// Error Codes
+// ==========================================
+
+export enum ErrorCode {
+  // Configuration errors (1xx)
+  API_KEY_MISSING = "API_KEY_MISSING",
+  API_KEY_INVALID = "API_KEY_INVALID",
+  CONFIGURATION_ERROR = "CONFIGURATION_ERROR",
+
+  // Authentication/Authorization errors (4xx)
+  UNAUTHORIZED = "UNAUTHORIZED",
+  FORBIDDEN = "FORBIDDEN",
+
+  // Client errors
+  BAD_REQUEST = "BAD_REQUEST",
+  NOT_FOUND = "NOT_FOUND",
+  VALIDATION_ERROR = "VALIDATION_ERROR",
+  FILE_NOT_FOUND = "FILE_NOT_FOUND",
+  FILE_UPLOAD_ERROR = "FILE_UPLOAD_ERROR",
+
+  // External service errors
+  KIMI_API_ERROR = "KIMI_API_ERROR",
+  KIMI_RATE_LIMITED = "KIMI_RATE_LIMITED",
+  KIMI_SERVICE_UNAVAILABLE = "KIMI_SERVICE_UNAVAILABLE",
+
+  // Server errors
+  INTERNAL_ERROR = "INTERNAL_ERROR",
+  SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
+}
+
+// ==========================================
 // Kimi API Types (from original implementation)
 // ==========================================
 
@@ -154,6 +185,49 @@ export type SSEEvent = SSEChunkEvent | SSEToolCallEvent | SSEDoneEvent | SSEErro
 // Error Response
 export interface ApiErrorResponse {
   error: string;
+  code: ErrorCode;
   message: string;
   statusCode: number;
+}
+
+// ==========================================
+// Chat Types
+// ==========================================
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  fileIds: string[];
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments?: ChatAttachment[];
+  toolCalls?: KimiPluginToolCall[];
+  createdAt: number;
+  isStreaming?: boolean;
+}
+
+export interface ChatAttachment {
+  fileId: string;
+  filename: string;
+}
+
+// Chat API Request/Response Types
+export interface ChatRequest {
+  conversationId: string;
+  message: string;
+  fileIds: string[];
+  model?: string;
+  usePlugin?: boolean;
+}
+
+export interface ChatResponse {
+  content: string;
+  toolCalls: KimiPluginToolCall[];
 }

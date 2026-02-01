@@ -1,3 +1,5 @@
+export { ErrorCode } from "./types.js";
+
 export type {
   // Kimi API Types
   KimiPluginToolCall,
@@ -23,4 +25,10 @@ export type {
   SSEErrorEvent,
   SSEEvent,
   ApiErrorResponse,
+  // Chat Types
+  Conversation,
+  ChatMessage,
+  ChatAttachment,
+  ChatRequest,
+  ChatResponse,
 } from "./types.js";
