@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
+    "dev": "pnpm --filter @kimi-excel/server --filter @kimi-excel/client --parallel dev",
     "dev:server": "pnpm --filter @kimi-excel/server dev",
     "dev:client": "pnpm --filter @kimi-excel/client dev",
     "dev:cli": "pnpm --filter @kimi-excel/cli dev",
