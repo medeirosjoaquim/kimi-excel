@@ -8,7 +8,8 @@ import type {
   AnalysisResult,
   KimiPluginToolCall,
 } from "@kimi-excel/shared";
-import { excelPlugin } from "../config/excel-plugin.js";
+import type { KimiPlugin } from "../domain/interfaces/KimiPlugin.js";
+import { getPluginRegistry } from "../infrastructure/bootstrap.js";
 
 const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
 
@@ -18,6 +19,11 @@ export interface AnalyzeOptions {
   onChunk?: (chunk: string) => void;
   onToolCall?: (toolCall: KimiPluginToolCall) => void;
   usePlugin?: boolean;
+  abortSignal?: AbortSignal;
+}
+
+export interface ChatOptions extends AnalyzeOptions {
+  history?: { role: "user" | "assistant"; content: string }[];
 }
 
 export class KimiService {
@@ -81,13 +87,17 @@ export class KimiService {
 
     const fileInfo = await this.getFileInfo(fileId);
 
+    // Get the appropriate plugin for this file
+    const registry = getPluginRegistry();
+    const plugin = usePlugin ? registry.getPluginForFile(fileInfo) : null;
+
     let messages: KimiMessage[];
 
-    if (usePlugin) {
+    if (plugin) {
       messages = [
         {
           role: "system",
-          content: "You are a helpful data analysis assistant. Analyze the provided Excel/CSV file and answer questions about it. Use the excel plugin tools to read and analyze the data.",
+          content: plugin.getSystemPrompt(1),
         },
         {
           role: "system",
@@ -95,7 +105,7 @@ export class KimiService {
             {
               id: fileId,
               filename: fileInfo.filename,
-              file_type: fileInfo.file_type || this.inferFileType(fileInfo.filename),
+              file_type: fileInfo.file_type || plugin.inferFileType(fileInfo.filename),
             },
           ]),
           name: "resource:file-info",
@@ -120,9 +130,9 @@ export class KimiService {
     }
 
     if (stream) {
-      return this.streamAnalysis(messages, model, onChunk, onToolCall, usePlugin);
+      return this.streamAnalysis(messages, model, onChunk, onToolCall, plugin ?? undefined, options.abortSignal);
     } else {
-      return this.nonStreamAnalysis(messages, model, usePlugin);
+      return this.nonStreamAnalysis(messages, model, plugin ?? undefined);
     }
   }
 
@@ -131,7 +141,8 @@ export class KimiService {
     model: string,
     onChunk?: (chunk: string) => void,
     onToolCall?: (toolCall: KimiPluginToolCall) => void,
-    usePlugin = false
+    plugin?: KimiPlugin,
+    abortSignal?: AbortSignal
   ): Promise<AnalysisResult> {
     const requestParams: OpenAI.ChatCompletionCreateParamsStreaming = {
       model,
@@ -142,8 +153,8 @@ export class KimiService {
       stream: true,
     };
 
-    if (usePlugin) {
-      requestParams.tools = [excelPlugin] as unknown as OpenAI.ChatCompletionTool[];
+    if (plugin) {
+      requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
     }
 
     const stream = await this.client.chat.completions.create(requestParams);
@@ -151,34 +162,49 @@ export class KimiService {
     let fullContent = "";
     const toolCalls: AnalysisResult["toolCalls"] = [];
 
-    for await (const chunk of stream) {
-      const choice = chunk.choices[0];
+    try {
+      for await (const chunk of stream) {
+        // Check if aborted
+        if (abortSignal?.aborted) {
+          // Cancel the stream
+          stream.controller.abort();
+          throw new Error("ABORTED");
+        }
 
-      if (choice?.delta?.content) {
-        fullContent += choice.delta.content;
-        onChunk?.(choice.delta.content);
-      }
+        const choice = chunk.choices[0];
 
-      if (choice?.delta?.tool_calls) {
-        for (const tc of choice.delta.tool_calls) {
-          const existingCall = toolCalls.find((t) => t.index === tc.index);
-          if (existingCall && tc.function?.arguments) {
-            existingCall._plugin.arguments += tc.function.arguments;
-          } else if (tc.id) {
-            const newToolCall: KimiPluginToolCall = {
-              index: tc.index ?? toolCalls.length,
-              id: tc.id,
-              type: "_plugin",
-              _plugin: {
-                name: tc.function?.name ?? "",
-                arguments: tc.function?.arguments ?? "",
-              },
-            };
-            toolCalls.push(newToolCall);
-            onToolCall?.(newToolCall);
+        if (choice?.delta?.content) {
+          fullContent += choice.delta.content;
+          onChunk?.(choice.delta.content);
+        }
+
+        if (choice?.delta?.tool_calls) {
+          for (const tc of choice.delta.tool_calls) {
+            const existingCall = toolCalls.find((t) => t.index === tc.index);
+            if (existingCall && tc.function?.arguments) {
+              existingCall._plugin.arguments += tc.function.arguments;
+            } else if (tc.id) {
+              const newToolCall: KimiPluginToolCall = {
+                index: tc.index ?? toolCalls.length,
+                id: tc.id,
+                type: "_plugin",
+                _plugin: {
+                  name: tc.function?.name ?? "",
+                  arguments: tc.function?.arguments ?? "",
+                },
+              };
+              toolCalls.push(newToolCall);
+              onToolCall?.(newToolCall);
+            }
           }
         }
       }
+    } catch (error) {
+      if (error instanceof Error && error.message === "ABORTED") {
+        // Return partial content on abort
+        return { content: fullContent, toolCalls };
+      }
+      throw error;
     }
 
     return { content: fullContent, toolCalls };
@@ -187,7 +213,7 @@ export class KimiService {
   private async nonStreamAnalysis(
     messages: KimiMessage[],
     model: string,
-    usePlugin = false
+    plugin?: KimiPlugin
   ): Promise<AnalysisResult> {
     const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
       model,
@@ -198,8 +224,8 @@ export class KimiService {
       stream: false,
     };
 
-    if (usePlugin) {
-      requestParams.tools = [excelPlugin] as unknown as OpenAI.ChatCompletionTool[];
+    if (plugin) {
+      requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
     }
 
     const response = await this.client.chat.completions.create(requestParams);
@@ -236,6 +262,107 @@ export class KimiService {
       ".tsv": "text/tab-separated-values",
     };
     return mimeTypes[ext] ?? "application/octet-stream";
+  }
+
+  async analyzeWithContext(
+    fileIds: string[],
+    question: string,
+    options: ChatOptions = {}
+  ): Promise<AnalysisResult> {
+    const {
+      model = "kimi-k2-0905-preview",
+      stream = true,
+      onChunk,
+      onToolCall,
+      usePlugin = false,
+      history = [],
+    } = options;
+
+    // Get plugin registry
+    const registry = getPluginRegistry();
+
+    // Collect file info for all files
+    const fileInfoList = await Promise.all(
+      fileIds.map(async (fileId) => this.getFileInfo(fileId))
+    );
+
+    // Find the appropriate plugin for these files (if using plugins)
+    let plugin: KimiPlugin | null = null;
+    if (usePlugin && fileIds.length > 0) {
+      plugin = registry.getPluginForFiles(fileInfoList);
+    }
+
+    // Build file info objects using plugin or fallback
+    const fileInfos = fileInfoList.map((info, idx) => ({
+      id: fileIds[idx],
+      filename: info.filename,
+      file_type: info.file_type || (plugin?.inferFileType(info.filename) ?? this.inferFileType(info.filename)),
+    }));
+
+    let messages: KimiMessage[];
+
+    if (plugin && fileIds.length > 0) {
+      messages = [
+        {
+          role: "system",
+          content: plugin.getSystemPrompt(fileIds.length),
+        },
+        {
+          role: "system",
+          content: JSON.stringify(fileInfos),
+          name: "resource:file-info",
+        },
+      ];
+    } else if (fileIds.length > 0) {
+      // Non-plugin mode: fetch and include file contents
+      const fileContents = await Promise.all(
+        fileIds.map(async (fileId, idx) => {
+          const content = await this.getFileContent(fileId);
+          return `=== File: ${fileInfos[idx].filename} ===\n${content}`;
+        })
+      );
+
+      messages = [
+        {
+          role: "system",
+          content:
+            "You are a helpful data analysis assistant. Analyze the provided file data and answer questions about it accurately and concisely. When multiple files are provided, you can cross-reference data between them.",
+        },
+        {
+          role: "user",
+          content: `Here are the contents of the files:\n\n${fileContents.join("\n\n---\n\n")}`,
+        },
+      ];
+    } else {
+      // No files, just general chat
+      messages = [
+        {
+          role: "system",
+          content:
+            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely.",
+        },
+      ];
+    }
+
+    // Add conversation history
+    for (const msg of history) {
+      messages.push({
+        role: msg.role,
+        content: msg.content,
+      });
+    }
+
+    // Add current question
+    messages.push({
+      role: "user",
+      content: question,
+    });
+
+    if (stream) {
+      return this.streamAnalysis(messages, model, onChunk, onToolCall, plugin ?? undefined, options.abortSignal);
+    } else {
+      return this.nonStreamAnalysis(messages, model, plugin ?? undefined);
+    }
   }
 }
 
