@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Sidebar } from "./Sidebar.js";
 import { ChatArea } from "./ChatArea.js";
+import { ConfirmDialog } from "../ConfirmDialog.js";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useFileStore } from "../../stores/useFileStore.js";
 
@@ -17,6 +18,7 @@ export function ChatLayout() {
     <div className="chat-layout">
       <Sidebar />
       <ChatArea />
+      <ConfirmDialog />
     </div>
   );
 }

@@ -1605,6 +1605,75 @@ main {
   border-color: var(--text-muted);
 }
 
+/* ===== CONFIRM DIALOG ===== */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+}
+
+.confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: 8px;
+  padding: var(--space-lg);
+  min-width: 320px;
+  max-width: 90vw;
+  z-index: 1001;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-message {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  margin-bottom: var(--space-lg);
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.confirm-btn {
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.813rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.confirm-btn.cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-medium);
+}
+
+.confirm-btn.cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.confirm-btn.confirm {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: 1px solid var(--accent);
+}
+
+.confirm-btn.confirm:hover {
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+}
+
 /* ===== RESPONSIVE CHAT ===== */
 @media (max-width: 768px) {
   .chat-layout > .sidebar {
