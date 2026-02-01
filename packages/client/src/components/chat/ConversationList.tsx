@@ -1,4 +1,5 @@
 import { useConversationStore } from "../../stores/useConversationStore.js";
+import { useUIStore } from "../../stores/useUIStore.js";
 
 export function ConversationList() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -6,6 +7,7 @@ export function ConversationList() {
   const selectConversation = useConversationStore((s) => s.select);
   const deleteConversation = useConversationStore((s) => s.delete);
   const isLoading = useConversationStore((s) => s.isLoading);
+  const closeSidebarOnMobile = useUIStore((s) => s.closeSidebarOnMobile);
 
   if (isLoading) {
     return <div className="conversation-list-loading">Loading...</div>;
@@ -44,7 +46,10 @@ export function ConversationList() {
           <li
             key={conv.id}
             className={`conversation-item ${activeId === conv.id ? "selected" : ""}`}
-            onClick={() => selectConversation(conv.id)}
+            onClick={() => {
+              selectConversation(conv.id);
+              closeSidebarOnMobile();
+            }}
           >
             <div className="conversation-info">
               <span className="conversation-title">{conv.title}</span>

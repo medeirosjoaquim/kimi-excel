@@ -103,19 +103,24 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
 
       <AttachmentPreview />
 
-      <form className="chat-input-form" onSubmit={handleSubmit}>
+      <form className={`chat-input-form ${isStreaming ? "generating" : ""}`} onSubmit={handleSubmit}>
         <AttachmentButton />
 
-        <textarea
-          ref={textareaRef}
-          className="chat-input-textarea"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about your Excel files..."
-          disabled={isStreaming}
-          rows={1}
-        />
+        <div className="chat-input-wrapper">
+          <textarea
+            ref={textareaRef}
+            className="chat-input-textarea"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask about your Excel files..."
+            disabled={isStreaming}
+            rows={1}
+          />
+          {isStreaming && (
+            <div className="chat-input-generating">Generating...</div>
+          )}
+        </div>
 
         {isStreaming ? (
           <button
