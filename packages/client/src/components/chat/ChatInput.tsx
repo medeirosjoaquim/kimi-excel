@@ -73,7 +73,7 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
       trimmedMessage,
       attachments,
       conversationFileIds,
-      { usePlugin: true }
+      { usePlugin: false }
     );
 
     setMessage("");
