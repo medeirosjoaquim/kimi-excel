@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { uploadFile, listFiles, getFile, deleteFile } from "../controllers/files.controller.js";
 import { analyzeFile } from "../controllers/analysis.controller.js";
+import { chat } from "../controllers/chat.controller.js";
 import { uploadRateLimitMiddleware, analysisRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
 
 const router: RouterType = Router();
@@ -43,5 +44,8 @@ router.delete("/files/:id", deleteFile);
 
 // Analysis route
 router.post("/files/:id/analyze", analysisRateLimitMiddleware, analyzeFile);
+
+// Chat route (multi-file context)
+router.post("/chat", analysisRateLimitMiddleware, chat);
 
 export { router };
