@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Conversation } from "@kimi-excel/shared";
 import { storage } from "../lib/storage.js";
+import logger from "../lib/logger.js";
 
 interface ConversationState {
   conversations: Conversation[];
@@ -52,10 +53,20 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       fileIds,
     };
 
+    logger.info("ConversationStore", "Creating new conversation", {
+      conversationId: conversation.id,
+      fileIds,
+    });
+
     const { conversations } = get();
     const updated = [conversation, ...conversations];
     storage.saveConversations(updated);
     set({ conversations: updated, activeId: conversation.id });
+
+    logger.info("ConversationStore", "Conversation created and set as active", {
+      conversationId: conversation.id,
+    });
+
     return conversation;
   },
 

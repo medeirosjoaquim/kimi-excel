@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ChatMessage, ChatAttachment, KimiPluginToolCall } from "@kimi-excel/shared";
 import { storage } from "../lib/storage.js";
 import { api } from "../api/client.js";
+import logger from "../lib/logger.js";
 
 interface PendingAttachment {
   fileId: string;
@@ -18,6 +19,7 @@ interface ChatState {
 
 interface ChatActions {
   loadMessages: (conversationId: string) => ChatMessage[];
+  getMessages: (conversationId: string | null) => ChatMessage[];
   sendMessage: (
     conversationId: string,
     content: string,
@@ -57,7 +59,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return loaded;
   },
 
+  getMessages: (conversationId: string | null) => {
+    if (!conversationId) return [];
+    const { messages } = get();
+    return messages[conversationId] ?? [];
+  },
+
   sendMessage: (conversationId, content, attachments, fileIds, options = {}) => {
+    logger.info("ChatStore", `sendMessage: conv=${conversationId}, content=${content.length} chars, attachments=${attachments.length}, fileIds=${fileIds.length}`);
+
     // Abort any ongoing stream
     get().abortStream();
 
@@ -86,6 +96,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const updatedMessages = [...conversationMessages, userMessage, assistantMessage];
 
+    logger.debug("ChatStore", `Setting state: ${updatedMessages.length} messages for conv ${conversationId}`);
+
     set({
       messages: { ...messages, [conversationId]: updatedMessages },
       isStreaming: true,
@@ -95,6 +107,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     // Save user message immediately
     storage.saveMessages(conversationId, [...conversationMessages, userMessage]);
+    logger.debug("ChatStore", "User message saved");
 
     // Build conversation history for context
     const historyMessages = conversationMessages
@@ -104,85 +117,111 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: m.content,
       }));
 
-    const controller = api.chatStream(
-      {
-        conversationId,
-        message: content,
-        fileIds,
-        history: historyMessages,
-        ...options,
-      },
-      {
-        onChunk: (chunk) => {
-          console.log("[Chat] onChunk received:", chunk.substring(0, 50));
-          const { messages } = get();
-          const convMessages = messages[conversationId] ?? [];
-          const lastIdx = convMessages.length - 1;
-          if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
-            const updatedMsg = {
-              ...convMessages[lastIdx],
-              content: convMessages[lastIdx].content + chunk,
-            };
-            const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            set({ messages: { ...messages, [conversationId]: newMessages } });
-            console.log("[Chat] Message updated, content length:", updatedMsg.content.length);
-          }
+    logger.debug("ChatStore", `Calling api.chatStream with ${historyMessages.length} history messages`);
+
+    try {
+      const controller = api.chatStream(
+        {
+          conversationId,
+          message: content,
+          fileIds,
+          history: historyMessages,
+          ...options,
         },
-        onToolCall: (toolCall: KimiPluginToolCall) => {
-          console.log("[Chat] onToolCall received:", toolCall);
-          const { messages } = get();
-          const convMessages = messages[conversationId] ?? [];
-          const lastIdx = convMessages.length - 1;
-          if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
-            const lastMsg = convMessages[lastIdx];
-            const updatedMsg = {
-              ...lastMsg,
-              toolCalls: [...(lastMsg.toolCalls ?? []), toolCall],
-            };
-            const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
-            set({ messages: { ...messages, [conversationId]: newMessages } });
-          }
-        },
-        onDone: (event) => {
-          console.log("[Chat] onDone received:", event.content.substring(0, 100));
-          const { messages } = get();
-          const convMessages = messages[conversationId] ?? [];
-          const lastIdx = convMessages.length - 1;
-          if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
-            const updatedMsg = {
-              ...convMessages[lastIdx],
-              content: event.content,
-              toolCalls: event.toolCalls.length > 0 ? event.toolCalls : undefined,
-              isStreaming: false,
-            };
-            const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
+        {
+          onChunk: (chunk) => {
+            logger.debug("ChatStore", `onChunk: "${chunk.substring(0, 30)}..."`);
+            const { messages } = get();
+            const convMessages = messages[conversationId] ?? [];
+            const lastIdx = convMessages.length - 1;
+            logger.debug("ChatStore", `Updating message ${lastIdx}, current length: ${convMessages[lastIdx]?.content?.length || 0}`);
+            if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
+              const updatedMsg = {
+                ...convMessages[lastIdx],
+                content: convMessages[lastIdx].content + chunk,
+              };
+              const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
+              set({ messages: { ...messages, [conversationId]: newMessages } });
+              logger.debug("ChatStore", `Message updated, new length: ${updatedMsg.content.length}`);
+            } else {
+              logger.warn("ChatStore", "Cannot update message - assistant message not found");
+            }
+          },
+          onToolCall: (toolCall: KimiPluginToolCall) => {
+            logger.info("ChatStore", "onToolCall received", { toolCall });
+            const { messages } = get();
+            const convMessages = messages[conversationId] ?? [];
+            const lastIdx = convMessages.length - 1;
+            if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
+              const lastMsg = convMessages[lastIdx];
+              const updatedMsg = {
+                ...lastMsg,
+                toolCalls: [...(lastMsg.toolCalls ?? []), toolCall],
+              };
+              const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
+              set({ messages: { ...messages, [conversationId]: newMessages } });
+            }
+          },
+          onDone: (event) => {
+            logger.info("ChatStore", `onDone: content=${event.content.length} chars, toolCalls=${event.toolCalls.length}`);
+            const { messages } = get();
+            const convMessages = messages[conversationId] ?? [];
+            const lastIdx = convMessages.length - 1;
+            logger.debug("ChatStore", `Finalizing message ${lastIdx}`);
+            if (lastIdx >= 0 && convMessages[lastIdx].role === "assistant") {
+              const updatedMsg = {
+                ...convMessages[lastIdx],
+                content: event.content,
+                toolCalls: event.toolCalls.length > 0 ? event.toolCalls : undefined,
+                isStreaming: false,
+              };
+              const newMessages = [...convMessages.slice(0, lastIdx), updatedMsg];
+              set({
+                messages: { ...messages, [conversationId]: newMessages },
+                isStreaming: false,
+                abortController: null,
+              });
+              storage.saveMessages(conversationId, newMessages);
+              logger.info("ChatStore", "Message finalized and saved");
+            } else {
+              logger.warn("ChatStore", "Cannot finalize - assistant message not found");
+            }
+          },
+          onError: (message) => {
+            logger.error("ChatStore", `onError: ${message}`);
+            const { messages } = get();
+            const convMessages = messages[conversationId] ?? [];
+            // Remove the streaming assistant message on error
+            const withoutStreaming = convMessages.filter((m) => !m.isStreaming);
             set({
-              messages: { ...messages, [conversationId]: newMessages },
+              messages: { ...messages, [conversationId]: withoutStreaming },
               isStreaming: false,
+              error: message,
               abortController: null,
             });
-            storage.saveMessages(conversationId, newMessages);
-            console.log("[Chat] Final message saved, content length:", updatedMsg.content.length);
-          }
-        },
-        onError: (message) => {
-          console.error("[Chat] onError received:", message);
-          const { messages } = get();
-          const convMessages = messages[conversationId] ?? [];
-          // Remove the streaming assistant message on error
-          const withoutStreaming = convMessages.filter((m) => !m.isStreaming);
-          set({
-            messages: { ...messages, [conversationId]: withoutStreaming },
-            isStreaming: false,
-            error: message,
-            abortController: null,
-          });
-          storage.saveMessages(conversationId, withoutStreaming);
-        },
-      }
-    );
+            storage.saveMessages(conversationId, withoutStreaming);
+          },
+        }
+      );
 
-    set({ abortController: controller });
+      logger.debug("ChatStore", "api.chatStream returned controller");
+      set({ abortController: controller });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error("ChatStore", `Synchronous error: ${error.message}`);
+      
+      // Handle synchronous errors (e.g., network failure before request starts)
+      const { messages } = get();
+      const convMessages = messages[conversationId] ?? [];
+      const withoutStreaming = convMessages.filter((m) => !m.isStreaming);
+      set({
+        messages: { ...messages, [conversationId]: withoutStreaming },
+        isStreaming: false,
+        error: error.message,
+        abortController: null,
+      });
+      storage.saveMessages(conversationId, withoutStreaming);
+    }
   },
 
   abortStream: (conversationId?: string) => {

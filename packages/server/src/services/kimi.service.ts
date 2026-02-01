@@ -43,36 +43,97 @@ export class KimiService {
     const absolutePath = path.resolve(filePath);
 
     if (!fs.existsSync(absolutePath)) {
+      log.error("File not found", { path: absolutePath });
       throw new Error(`File not found: ${absolutePath}`);
     }
 
-    const file = fs.createReadStream(absolutePath);
+    try {
+      const file = fs.createReadStream(absolutePath);
 
-    const response = await this.client.files.create({
-      file,
-      purpose: "file-extract" as "assistants",
-    });
+      log.debug("Uploading file to Kimi", { path: absolutePath });
+      const response = await this.client.files.create({
+        file,
+        purpose: "file-extract" as "assistants",
+      });
 
-    return response as unknown as KimiUploadResponse;
+      log.info("File uploaded successfully", {
+        fileId: response.id,
+        filename: response.filename,
+      });
+      return response as unknown as KimiUploadResponse;
+    } catch (error) {
+      log.error("Failed to upload file", {
+        path: absolutePath,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async getFileInfo(fileId: string): Promise<KimiFileInfo> {
-    const response = await this.client.files.retrieve(fileId);
-    return response as unknown as KimiFileInfo;
+    try {
+      log.debug("Fetching file info", { fileId });
+      const response = await this.client.files.retrieve(fileId);
+      return response as unknown as KimiFileInfo;
+    } catch (error) {
+      log.error("Failed to fetch file info", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async listFiles(): Promise<KimiFileInfo[]> {
-    const response = await this.client.files.list();
-    return response.data as unknown as KimiFileInfo[];
+    try {
+      log.debug("Listing files from Kimi");
+      const response = await this.client.files.list();
+      log.debug("Files listed successfully", { count: response.data.length });
+      return response.data as unknown as KimiFileInfo[];
+    } catch (error) {
+      log.error("Failed to list files", {
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async deleteFile(fileId: string): Promise<void> {
-    await this.client.files.del(fileId);
+    try {
+      log.debug("Deleting file", { fileId });
+      await this.client.files.del(fileId);
+      log.info("File deleted successfully", { fileId });
+    } catch (error) {
+      log.error("Failed to delete file", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async getFileContent(fileId: string): Promise<string> {
-    const response = await this.client.files.content(fileId);
-    return response.text();
+    try {
+      log.debug("Fetching file content", { fileId });
+      const response = await this.client.files.content(fileId);
+      const content = await response.text();
+      log.debug("File content fetched successfully", {
+        fileId,
+        contentLength: content.length,
+      });
+      return content;
+    } catch (error) {
+      log.error("Failed to fetch file content", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async analyzeFile(
@@ -175,8 +236,19 @@ export class KimiService {
       }
 
       log.debug("Creating chat completion stream");
-      const stream = await this.client.chat.completions.create(requestParams);
-      log.debug("Stream created, starting to read chunks");
+      let stream;
+      try {
+        stream = await this.client.chat.completions.create(requestParams);
+        log.debug("Stream created successfully");
+      } catch (error) {
+        log.error("Failed to create chat completion stream", {
+          iteration,
+          model,
+          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
+        throw error;
+      }
 
       let iterationContent = "";
       const iterationToolCalls: KimiPluginToolCall[] = [];
@@ -188,7 +260,7 @@ export class KimiService {
           chunkIndex++;
           // Check if aborted
           if (abortSignal?.aborted) {
-            stream.controller.abort();
+            log.debug("Stream aborted by signal");
             throw new Error("ABORTED");
           }
 
@@ -306,8 +378,15 @@ export class KimiService {
         }
       } catch (error) {
         if (error instanceof Error && error.message === "ABORTED") {
+          log.debug("Stream aborted, returning partial result");
           return { content: fullContent, toolCalls: allToolCalls };
         }
+        log.error("Error reading stream", {
+          iteration,
+          chunkIndex,
+          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
         throw error;
       }
 
@@ -391,42 +470,54 @@ export class KimiService {
     model: string,
     plugin?: KimiPlugin
   ): Promise<AnalysisResult> {
-    const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
-      temperature: 0.6,
-      max_tokens: 8192,
-      top_p: 1,
-      stream: false,
-    };
+    try {
+      log.debug("Starting non-stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
 
-    if (plugin) {
-      requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
-    }
+      const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+        model,
+        messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
+        temperature: 0.6,
+        max_tokens: 8192,
+        top_p: 1,
+        stream: false,
+      };
 
-    const response = await this.client.chat.completions.create(requestParams);
+      if (plugin) {
+        requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
+      }
 
-    const choice = response.choices[0];
-    const content = choice?.message?.content ?? "";
-    const toolCalls: AnalysisResult["toolCalls"] = [];
+      const response = await this.client.chat.completions.create(requestParams);
 
-    if (choice?.message?.tool_calls) {
-      for (const [index, tc] of choice.message.tool_calls.entries()) {
-        if (tc.function) {
-          toolCalls.push({
-            index,
-            id: tc.id,
-            type: "_plugin",
-            _plugin: {
-              name: tc.function.name ?? "",
-              arguments: tc.function.arguments ?? "",
-            },
-          });
+      const choice = response.choices[0];
+      const content = choice?.message?.content ?? "";
+      const toolCalls: AnalysisResult["toolCalls"] = [];
+
+      if (choice?.message?.tool_calls) {
+        for (const [index, tc] of choice.message.tool_calls.entries()) {
+          if (tc.function) {
+            toolCalls.push({
+              index,
+              id: tc.id,
+              type: "_plugin",
+              _plugin: {
+                name: tc.function.name ?? "",
+                arguments: tc.function.arguments ?? "",
+              },
+            });
+          }
         }
       }
-    }
 
-    return { content, toolCalls };
+      log.debug("Non-stream analysis completed", { contentLength: content.length, toolCallCount: toolCalls.length });
+      return { content, toolCalls };
+    } catch (error) {
+      log.error("Failed to complete non-stream analysis", {
+        model,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   private inferFileType(filename: string): string {

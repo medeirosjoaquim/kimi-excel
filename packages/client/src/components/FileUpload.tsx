@@ -44,14 +44,32 @@ export function FileUpload() {
     fileInputRef.current?.click();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <div className="file-upload">
+      {/* Screen reader announcements for status changes */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {isUploading ? "Uploading file..." : ""}
+        {error ? `Error: ${error}` : ""}
+      </div>
+
       <div
         className={`drop-zone ${dragOver ? "drag-over" : ""} ${isUploading ? "uploading" : ""}`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label="File upload zone. Click or press Enter to select a file, or drag and drop a file here."
+        aria-disabled={isUploading}
       >
         <input
           ref={fileInputRef}
@@ -59,17 +77,23 @@ export function FileUpload() {
           accept=".xlsx,.xls,.csv,.tsv"
           onChange={(e) => handleFileSelect(e.target.files)}
           style={{ display: "none" }}
+          aria-label="Select file to upload"
+          aria-describedby="file-upload-hint"
         />
         {isUploading ? (
-          <p>Uploading...</p>
+          <p role="status" aria-live="polite">Uploading...</p>
         ) : (
           <>
             <p>Drop a file here or click to select</p>
-            <p className="hint">Supported: .xlsx, .xls, .csv, .tsv</p>
+            <p id="file-upload-hint" className="hint">Supported: .xlsx, .xls, .csv, .tsv</p>
           </>
         )}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

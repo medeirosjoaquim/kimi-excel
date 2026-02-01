@@ -7,6 +7,7 @@ export function ConfirmDialog() {
   const handleConfirm = useConfirmStore((s) => s.handleConfirm);
   const handleCancel = useConfirmStore((s) => s.handleCancel);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen && confirmBtnRef.current) {
@@ -25,22 +26,74 @@ export function ConfirmDialog() {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Trap focus within dialog
+    const handleTabKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      const focusableElements = dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey && document.activeElement === firstElement) {
+        e.preventDefault();
+        lastElement?.focus();
+      } else if (!e.shiftKey && document.activeElement === lastElement) {
+        e.preventDefault();
+        firstElement?.focus();
+      }
+    };
+
+    const keyHandler = (e: KeyboardEvent) => {
+      handleKeyDown(e);
+      handleTabKey(e);
+    };
+
+    window.addEventListener("keydown", keyHandler);
+    return () => window.removeEventListener("keydown", keyHandler);
   }, [isOpen, handleCancel, handleConfirm]);
+
+  // Prevent body scroll when dialog is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
     <>
-      <div className="confirm-backdrop" onClick={handleCancel} />
-      <div className="confirm-dialog">
-        <p className="confirm-message">{message}</p>
+      <div 
+        className="confirm-backdrop" 
+        onClick={handleCancel}
+        aria-hidden="true"
+      />
+      <div 
+        ref={dialogRef}
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-message"
+      >
+        <h2 id="confirm-dialog-title" className="sr-only">Confirmation Required</h2>
+        <p id="confirm-dialog-message" className="confirm-message">{message}</p>
         <div className="confirm-actions">
           <button
             type="button"
             className="confirm-btn cancel"
             onClick={handleCancel}
+            aria-label="Cancel action"
           >
             Cancel
           </button>
@@ -49,6 +102,7 @@ export function ConfirmDialog() {
             type="button"
             className="confirm-btn confirm"
             onClick={handleConfirm}
+            aria-label="Confirm action"
           >
             Confirm
           </button>
