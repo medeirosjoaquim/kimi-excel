@@ -12,6 +12,7 @@ export function DebugPanel() {
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"logs" | "state" | "sessions">("logs");
   const [currentSession, setCurrentSession] = useState<LogSession | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
 
   // Subscribe to stores to show real-time state
   const activeConvId = useConversationStore((s) => s.activeId);
@@ -27,6 +28,8 @@ export function DebugPanel() {
     if (!isOpen) return;
 
     const updateInfo = async () => {
+      await logger.ready();
+      setStorageReady(logger.isStorageReady());
       const allSessions = await logger.getSessions(20);
       setSessions(allSessions);
       setCurrentSession(logger.getCurrentSession());
@@ -48,12 +51,20 @@ export function DebugPanel() {
         const session = logger.getCurrentSession();
         if (session) {
           fetchedLogs = await logger.getLogs({ sessionId: session.id, limit: 200 });
+          // If storage returns no logs, check memory logs
+          if (fetchedLogs.length === 0) {
+            fetchedLogs = logger.getMemoryLogs();
+          }
         } else {
           // Fall back to memory logs if no active session
           fetchedLogs = logger.getMemoryLogs();
         }
       } else if (selectedSession === "all") {
         fetchedLogs = await logger.getLogs({ limit: 200 });
+        // If storage returns no logs, check memory logs
+        if (fetchedLogs.length === 0) {
+          fetchedLogs = logger.getMemoryLogs();
+        }
       } else {
         fetchedLogs = await logger.getLogs({ sessionId: selectedSession, limit: 200 });
       }
@@ -208,7 +219,14 @@ export function DebugPanel() {
       {activeTab === "logs" ? (
         <div className="debug-logs">
           {logs.length === 0 ? (
-            <div className="debug-empty">No logs</div>
+            <div className="debug-empty">
+              <div>No logs available</div>
+              {!storageReady && (
+                <div className="debug-warning" style={{ marginTop: "8px", fontSize: "12px", color: "#f59e0b" }}>
+                  Storage not ready yet. Logs are in memory.
+                </div>
+              )}
+            </div>
           ) : (
             logs.map((log, idx) => (
               <div key={idx} className={`debug-log debug-log-${log.level}`}>
@@ -248,9 +266,21 @@ export function DebugPanel() {
             ) : (
               <div className="debug-empty">No active session</div>
             )}
-            <button onClick={handleNewSession} className="debug-button">
-              Start New Session
-            </button>
+          <button onClick={handleNewSession} className="debug-button">
+            Start New Session
+          </button>
+          <button
+            onClick={() => {
+              logger.info("DebugPanel", "Test log generated", {
+                timestamp: new Date().toISOString(),
+                test: true,
+              });
+            }}
+            className="debug-button"
+            title="Generate a test log entry"
+          >
+            Test Log
+          </button>
           </div>
 
           <div className="debug-session-list">

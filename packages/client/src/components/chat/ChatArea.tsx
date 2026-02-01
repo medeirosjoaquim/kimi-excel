@@ -36,14 +36,13 @@ export function ChatArea() {
   const justSwitched = activeId !== prevActiveIdRef.current;
 
   // Log render state for debugging
-  logger.debug("ChatArea", "Rendering", {
-    activeId,
-    messagesCount: messages.length,
-    hasMessages,
-    isStreaming,
-    justSwitched,
-    shouldShowWelcome: !activeId || (!hasMessages && !isStreaming),
-  });
+  const showWelcome = !activeId || (!hasMessages && !isStreaming);
+  logger.debug("ChatArea", `Rendering: activeId=${activeId}, messages=${messages.length}, hasMessages=${hasMessages}, isStreaming=${isStreaming}, showWelcome=${showWelcome}`);
+  
+  // Log all message IDs for debugging
+  if (messages.length > 0) {
+    logger.debug("ChatArea", `Message IDs: ${messages.map(m => `${m.role}:${m.id.slice(0, 8)}`).join(', ')}`);
+  }
 
   return (
     <main 
@@ -76,15 +75,17 @@ export function ChatArea() {
         </div>
       )}
 
-      {/* Debug info - remove after fixing */}
-      <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 300 }}>
+      {/* Debug overlay */}
+      <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 400 }}>
         <div>activeId: {activeId || 'null'}</div>
         <div>messages: {messages.length}</div>
         <div>isStreaming: {String(isStreaming)}</div>
-        <div>showWelcome: {String(!activeId || (!hasMessages && !isStreaming))}</div>
+        <div>showWelcome: {String(showWelcome)}</div>
+        <div>firstMsg: {messages[0]?.role || 'none'} {messages[0]?.content?.slice(0, 20) || ''}</div>
+        <div>lastMsg: {messages[messages.length-1]?.role || 'none'} {messages[messages.length-1]?.content?.slice(0, 20) || ''}</div>
       </div>
 
-      {!activeId || (!hasMessages && !isStreaming) ? (
+      {showWelcome ? (
         <WelcomeScreen />
       ) : (
         <div className="chat-messages-container">
