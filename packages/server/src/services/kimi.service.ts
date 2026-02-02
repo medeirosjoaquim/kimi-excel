@@ -9,7 +9,7 @@ import type {
   KimiPluginToolCall,
 } from "@kimi-excel/shared";
 import type { KimiPlugin } from "../domain/interfaces/KimiPlugin.js";
-import { getPluginRegistry } from "../infrastructure/bootstrap.js";
+import { getPluginRegistry, getUtilityPluginRegistry } from "../infrastructure/bootstrap.js";
 import { logger } from "../lib/logger.js";
 
 const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
@@ -27,6 +27,7 @@ export interface AnalyzeOptions {
 
 export interface ChatOptions extends AnalyzeOptions {
   history?: { role: "user" | "assistant"; content: string }[];
+  userTimezone?: string; // User's IANA timezone (e.g., "America/New_York")
 }
 
 export class KimiService {
@@ -206,15 +207,22 @@ export class KimiService {
     onChunk?: (chunk: string) => void,
     onToolCall?: (toolCall: KimiPluginToolCall) => void,
     plugin?: KimiPlugin,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    includeUtilityPlugins: boolean = true
   ): Promise<AnalysisResult> {
-    log.debug("Starting stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
+    log.debug("Starting stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin, includeUtilityPlugins });
 
     // Clone messages for the agentic loop
     const conversationMessages = [...messages];
     let fullContent = "";
     const allToolCalls: AnalysisResult["toolCalls"] = [];
     let iteration = 0;
+
+    // Get utility plugins if needed
+    const utilityRegistry = getUtilityPluginRegistry();
+    const utilityTools = includeUtilityPlugins
+      ? utilityRegistry.getAutoIncludePlugins().map(p => p.getToolDefinition())
+      : [];
 
     // Agentic loop: continue until no more tool calls or max iterations reached
     while (iteration < MAX_TOOL_ITERATIONS) {
@@ -230,9 +238,18 @@ export class KimiService {
         stream: true,
       };
 
+      // Build tools array with file plugin (if any) + utility plugins
+      const tools: unknown[] = [];
       if (plugin) {
-        log.debug("Using plugin", { pluginName: plugin.name });
-        requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
+        log.debug("Using file plugin", { pluginName: plugin.name });
+        tools.push(plugin.getToolDefinition());
+      }
+      if (utilityTools.length > 0) {
+        log.debug("Adding utility plugins", { count: utilityTools.length, names: utilityTools.map(t => t._plugin.name) });
+        tools.push(...utilityTools);
+      }
+      if (tools.length > 0) {
+        requestParams.tools = tools as unknown as OpenAI.ChatCompletionTool[];
       }
 
       log.debug("Creating chat completion stream");
@@ -418,27 +435,55 @@ export class KimiService {
       };
       conversationMessages.push(assistantMessage);
 
-      // For _plugin tools executed by Kimi, we need to include tool result messages
-      // Kimi's _plugin system executes tools server-side and provides results
-      // The tool_call_id references Kimi's internal execution cache
+      // Handle tool call results
+      // For utility plugins (like timezone), we execute them ourselves
+      // For Kimi's built-in plugins (like excel), Kimi handles execution
       for (const toolCall of iterationToolCalls) {
         // Check if we captured results from the stream
-        const resultContent = toolResults.get(toolCall.id);
+        let resultContent = toolResults.get(toolCall.id);
+
+        // If no result from stream, check if it's a utility plugin we can execute
+        if (!resultContent && includeUtilityPlugins) {
+          const functionName = toolCall._plugin.name;
+          let args: Record<string, unknown> = {};
+
+          try {
+            args = JSON.parse(toolCall._plugin.arguments || "{}");
+          } catch {
+            log.warn("Failed to parse tool call arguments", {
+              toolCallId: toolCall.id,
+              functionName,
+              arguments: toolCall._plugin.arguments,
+            });
+          }
+
+          // Try to execute via utility plugin
+          resultContent = utilityRegistry.executeFunction(functionName, args) ?? undefined;
+
+          if (resultContent) {
+            log.debug("Executed utility plugin function", {
+              toolCallId: toolCall.id,
+              functionName,
+              resultLength: resultContent.length,
+            });
+          }
+        }
 
         if (resultContent) {
-          // We got results from the stream
+          // We have a result (from stream or utility plugin execution)
           const toolResultMessage: KimiMessage = {
             role: "tool",
             content: resultContent,
             tool_call_id: toolCall.id,
           };
           conversationMessages.push(toolResultMessage);
-          log.debug("Added tool result from stream", {
+          log.debug("Added tool result", {
             toolCallId: toolCall.id,
-            contentLength: resultContent.length
+            toolName: toolCall._plugin.name,
+            contentLength: resultContent.length,
           });
         } else {
-          // For _plugin tools, Kimi handles execution internally
+          // For Kimi's built-in _plugin tools, Kimi handles execution internally
           // Empty content works - Kimi uses the tool_call_id to reference its cached execution result
           const toolResultMessage: KimiMessage = {
             role: "tool",
@@ -446,9 +491,9 @@ export class KimiService {
             tool_call_id: toolCall.id,
           };
           conversationMessages.push(toolResultMessage);
-          log.debug("Added empty tool result for _plugin (Kimi fills internally)", {
+          log.debug("Added empty tool result for built-in _plugin (Kimi fills internally)", {
             toolCallId: toolCall.id,
-            toolName: toolCall._plugin.name
+            toolName: toolCall._plugin.name,
           });
         }
       }
@@ -468,10 +513,11 @@ export class KimiService {
   private async nonStreamAnalysis(
     messages: KimiMessage[],
     model: string,
-    plugin?: KimiPlugin
+    plugin?: KimiPlugin,
+    includeUtilityPlugins: boolean = true
   ): Promise<AnalysisResult> {
     try {
-      log.debug("Starting non-stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
+      log.debug("Starting non-stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin, includeUtilityPlugins });
 
       const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
         model,
@@ -482,8 +528,22 @@ export class KimiService {
         stream: false,
       };
 
+      // Get utility plugins if needed
+      const utilityRegistry = getUtilityPluginRegistry();
+      const utilityTools = includeUtilityPlugins
+        ? utilityRegistry.getAutoIncludePlugins().map(p => p.getToolDefinition())
+        : [];
+
+      // Build tools array with file plugin (if any) + utility plugins
+      const tools: unknown[] = [];
       if (plugin) {
-        requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
+        tools.push(plugin.getToolDefinition());
+      }
+      if (utilityTools.length > 0) {
+        tools.push(...utilityTools);
+      }
+      if (tools.length > 0) {
+        requestParams.tools = tools as unknown as OpenAI.ChatCompletionTool[];
       }
 
       const response = await this.client.chat.completions.create(requestParams);
@@ -543,12 +603,15 @@ export class KimiService {
       onToolCall,
       usePlugin = false,
       history = [],
+      userTimezone,
     } = options;
 
-    log.info("analyzeWithContext called", { fileCount: fileIds.length, usePlugin, historyLength: history.length });
+    log.info("analyzeWithContext called", { fileCount: fileIds.length, usePlugin, historyLength: history.length, userTimezone });
 
-    // Get plugin registry
+    // Get plugin registries
     const registry = getPluginRegistry();
+    const utilityRegistry = getUtilityPluginRegistry();
+    const utilitySystemPrompt = utilityRegistry.getAutoIncludeSystemPrompt();
 
     // Collect file info for all files
     log.debug("Fetching file info", { fileIds });
@@ -573,11 +636,23 @@ export class KimiService {
 
     let messages: KimiMessage[];
 
+    // Build base system prompt with utility plugin additions
+    const buildSystemPrompt = (basePrompt: string): string => {
+      let prompt = basePrompt;
+      if (utilitySystemPrompt) {
+        prompt += `\n\n${utilitySystemPrompt}`;
+      }
+      if (userTimezone) {
+        prompt += `\n\nThe user's local timezone is: ${userTimezone}`;
+      }
+      return prompt;
+    };
+
     if (plugin && fileIds.length > 0) {
       messages = [
         {
           role: "system",
-          content: plugin.getSystemPrompt(fileIds.length),
+          content: buildSystemPrompt(plugin.getSystemPrompt(fileIds.length)),
         },
         {
           role: "system",
@@ -597,8 +672,9 @@ export class KimiService {
       messages = [
         {
           role: "system",
-          content:
-            "You are a helpful data analysis assistant. Analyze the provided file data and answer questions about it accurately and concisely. When multiple files are provided, you can cross-reference data between them.",
+          content: buildSystemPrompt(
+            "You are a helpful data analysis assistant. Analyze the provided file data and answer questions about it accurately and concisely. When multiple files are provided, you can cross-reference data between them."
+          ),
         },
         {
           role: "user",
@@ -610,8 +686,9 @@ export class KimiService {
       messages = [
         {
           role: "system",
-          content:
-            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely.",
+          content: buildSystemPrompt(
+            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely."
+          ),
         },
       ];
     }
