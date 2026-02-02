@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useConversationStore } from "../../stores/useConversationStore.js";
 import { useChatStore } from "../../stores/useChatStore.js";
+import { useUIStore } from "../../stores/useUIStore.js";
 import logger from "../../lib/logger.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { MessageList } from "./MessageList.js";
@@ -9,6 +10,7 @@ import { ChatInput } from "./ChatInput.js";
 export function ChatArea() {
   const activeId = useConversationStore((s) => s.activeId);
   const getActive = useConversationStore((s) => s.getActive);
+  const debugOpen = useUIStore((s) => s.debugOpen);
 
   // Subscribe to the entire messages Map to trigger re-renders
   const messagesMap = useChatStore((s) => s.messages);
@@ -76,14 +78,16 @@ export function ChatArea() {
       )}
 
       {/* Debug overlay */}
-      <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 400 }}>
-        <div>activeId: {activeId || 'null'}</div>
-        <div>messages: {messages.length}</div>
-        <div>isStreaming: {String(isStreaming)}</div>
-        <div>showWelcome: {String(showWelcome)}</div>
-        <div>firstMsg: {messages[0]?.role || 'none'} {messages[0]?.content?.slice(0, 20) || ''}</div>
-        <div>lastMsg: {messages[messages.length-1]?.role || 'none'} {messages[messages.length-1]?.content?.slice(0, 20) || ''}</div>
-      </div>
+      {debugOpen && (
+        <div style={{ position: 'fixed', top: 60, right: 10, background: '#333', padding: 8, fontSize: 10, zIndex: 9999, color: '#fff', maxWidth: 400 }}>
+          <div>activeId: {activeId || 'null'}</div>
+          <div>messages: {messages.length}</div>
+          <div>isStreaming: {String(isStreaming)}</div>
+          <div>showWelcome: {String(showWelcome)}</div>
+          <div>firstMsg: {messages[0]?.role || 'none'} {messages[0]?.content?.slice(0, 20) || ''}</div>
+          <div>lastMsg: {messages[messages.length-1]?.role || 'none'} {messages[messages.length-1]?.content?.slice(0, 20) || ''}</div>
+        </div>
+      )}
 
       {showWelcome ? (
         <WelcomeScreen />
