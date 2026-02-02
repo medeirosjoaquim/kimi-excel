@@ -34,6 +34,11 @@ export type {
   ChatAttachment,
   ChatRequest,
   ChatResponse,
+  // Export Types
+  ExportConversationRequest,
+  ExportAnalysisRequest,
+  ExportRawFileRequest,
+  ExportCustomDataRequest,
 } from "./types.js";
 
 // Utility Plugin Types

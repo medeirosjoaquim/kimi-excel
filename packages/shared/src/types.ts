@@ -247,3 +247,29 @@ export interface ChatResponse {
   content: string;
   toolCalls: KimiPluginToolCall[];
 }
+
+// ==========================================
+// Export API Types
+// ==========================================
+
+export interface ExportConversationRequest {
+  messageIds?: string[]; // Optional: export only specific messages
+  messages?: ChatMessage[]; // Include messages if not fetched from DB
+}
+
+export interface ExportAnalysisRequest {
+  fileId: string;
+  toolCallId: string;
+  toolCallData?: KimiPluginToolCall; // Include full tool call data if not in DB
+}
+
+export interface ExportRawFileRequest {
+  sheetName?: string;
+  range?: string; // e.g., "A1:D100"
+}
+
+export interface ExportCustomDataRequest {
+  data: unknown[][];
+  headers?: string[];
+  filename?: string;
+}
