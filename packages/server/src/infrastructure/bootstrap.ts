@@ -2,6 +2,9 @@ import { KimiPluginRegistry } from "./registry/KimiPluginRegistry.js";
 import { KimiUtilityPluginRegistry } from "./registry/UtilityPluginRegistry.js";
 import { ExcelPlugin } from "./plugins/ExcelPlugin.js";
 import { TimezonePlugin } from "./plugins/TimezonePlugin.js";
+import { GitHubPlugin } from "./plugins/GitHubPlugin.js";
+import { LinearPlugin } from "./plugins/LinearPlugin.js";
+import { ExcelExportPlugin } from "./plugins/ExcelExportPlugin.js";
 // Import future plugins here:
 // import { PdfPlugin } from "./plugins/PdfPlugin.js";
 // import { ImagePlugin } from "./plugins/ImagePlugin.js";
@@ -41,6 +44,15 @@ export function bootstrapUtilityPlugins(): KimiUtilityPluginRegistry {
 
   // Register Timezone plugin
   registry.register(new TimezonePlugin());
+
+  // Register GitHub plugin
+  registry.register(new GitHubPlugin());
+
+  // Register Linear plugin
+  registry.register(new LinearPlugin());
+
+  // Register Excel Export plugin
+  registry.register(new ExcelExportPlugin());
 
   // Register future utility plugins here:
   // registry.register(new CalculatorPlugin());
