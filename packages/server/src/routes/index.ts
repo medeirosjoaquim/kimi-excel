@@ -5,7 +5,13 @@ import * as os from "node:os";
 import { uploadFile, listFiles, getFile, deleteFile, findDuplicates, deduplicateFiles } from "../controllers/files.controller.js";
 import { analyzeFile } from "../controllers/analysis.controller.js";
 import { chat } from "../controllers/chat.controller.js";
-import { uploadRateLimitMiddleware, analysisRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
+import {
+  exportConversation,
+  exportAnalysisResult,
+  exportRawFile,
+  exportCustomData
+} from "../controllers/export.controller.js";
+import { uploadRateLimitMiddleware, analysisRateLimitMiddleware, exportRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
 
 const router: RouterType = Router();
 
@@ -49,5 +55,11 @@ router.post("/files/:id/analyze", analysisRateLimitMiddleware, analyzeFile);
 
 // Chat route (multi-file context)
 router.post("/chat", analysisRateLimitMiddleware, chat);
+
+// Export routes
+router.post("/export/conversation/:conversationId", exportRateLimitMiddleware, exportConversation);
+router.post("/export/analysis", exportRateLimitMiddleware, exportAnalysisResult);
+router.post("/export/file/:fileId", exportRateLimitMiddleware, exportRawFile);
+router.post("/export/custom", exportRateLimitMiddleware, exportCustomData);
 
 export { router };
