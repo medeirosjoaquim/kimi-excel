@@ -115,4 +115,5 @@ export const logger = {
   files: createLogger("Files"),
   http: createLogger("HTTP"),
   plugin: createLogger("Plugin"),
+  usage: createLogger("Usage"),
 };
