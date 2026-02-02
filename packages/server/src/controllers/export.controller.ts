@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import * as fs from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import type {
   ExportConversationRequest,
   ExportAnalysisRequest,
@@ -12,6 +13,56 @@ import { AppError } from "../middlewares/error-handler.middleware.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("ExportController");
+
+/**
+ * GET /api/export/download/:exportId
+ * Download an exported file by its ID
+ */
+export async function downloadExport(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const exportId = req.params.exportId as string;
+
+    log.info("Download export request", { exportId });
+
+    if (!exportId) {
+      throw AppError.badRequest("Export ID is required", ErrorCode.VALIDATION_ERROR);
+    }
+
+    const exportService = getExcelExportService();
+    const exportInfo = exportService.getExport(exportId);
+
+    if (!exportInfo) {
+      throw AppError.notFound("Export not found or has expired");
+    }
+
+    // Check if file exists
+    try {
+      await fsPromises.access(exportInfo.filePath);
+    } catch {
+      throw AppError.notFound("Export file not found");
+    }
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${exportInfo.filename}"`);
+
+    const fileStream = fs.createReadStream(exportInfo.filePath);
+    fileStream.pipe(res);
+
+    fileStream.on("error", (error) => {
+      log.error("Error streaming export file", { exportId, error });
+      next(error);
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 /**
  * POST /api/export/conversation/:conversationId
