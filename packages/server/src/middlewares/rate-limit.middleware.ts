@@ -35,3 +35,15 @@ export const analysisRateLimitMiddleware = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const exportRateLimitMiddleware = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // 30 exports per 15 minutes per IP
+  message: {
+    error: "Too Many Export Requests",
+    message: "You have exceeded the export rate limit. Please try again later.",
+    statusCode: 429,
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
