@@ -6,6 +6,7 @@ import { useVoiceInput } from "../../hooks/useVoiceInput.js";
 import logger from "../../lib/logger.js";
 import { AttachmentButton } from "./AttachmentButton.js";
 import { AttachmentPreview } from "./AttachmentPreview.js";
+import { UsageStatusline } from "./UsageStatusline.js";
 
 interface ChatInputProps {
   conversationId: string | null;
@@ -203,6 +204,8 @@ export function ChatInput({ conversationId, fileIds }: ChatInputProps) {
           </button>
         </div>
       )}
+
+      <UsageStatusline />
 
       <AttachmentPreview />
 
