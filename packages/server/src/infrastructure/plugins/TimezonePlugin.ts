@@ -259,11 +259,16 @@ export class TimezonePlugin implements KimiUtilityPlugin {
       "list_timezones",
       "get_timezone_difference",
     ];
-    // Strip plugin prefix if present (e.g., "timezone.get_current_time" -> "get_current_time")
-    const baseName = functionName.includes(".")
-      ? functionName.split(".").pop() ?? functionName
-      : functionName;
-    return functions.includes(baseName);
+    // If function has a prefix, only handle if it's our prefix
+    if (functionName.includes(".")) {
+      const [prefix, baseName] = functionName.split(".");
+      if (prefix !== this.name) {
+        return false; // Different plugin's function
+      }
+      return functions.includes(baseName);
+    }
+    // No prefix - check if it's one of our functions
+    return functions.includes(functionName);
   }
 
   /**

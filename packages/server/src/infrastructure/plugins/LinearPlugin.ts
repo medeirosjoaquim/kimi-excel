@@ -129,7 +129,8 @@ export async function executeLinearFunction(
     }
 
     case "list_team_members": {
-      const teamKey = args.team_key as string;
+      // Accept both team_key and team as parameter names
+      const teamKey = (args.team_key || args.team) as string;
 
       if (!teamKey) {
         return JSON.stringify({ error: "team_key is required" });
@@ -208,9 +209,10 @@ export async function executeLinearFunction(
     }
 
     case "list_issues": {
-      const teamKey = args.team_key as string;
+      // Accept both team_key and team as parameter names
+      const teamKey = (args.team_key || args.team) as string;
       const assignee = args.assignee as string | undefined;
-      const state = args.state as string | undefined;
+      const state = (args.state || args.status) as string | undefined;
       const limit = Math.min((args.limit as number) || 20, 50);
 
       if (!teamKey) {
@@ -707,11 +709,16 @@ export class LinearPlugin implements KimiUtilityPlugin {
    * Check if this plugin can handle the given function name
    */
   canHandle(functionName: string): boolean {
-    // Strip plugin prefix if present (e.g., "linear.list_teams" -> "list_teams")
-    const baseName = functionName.includes(".")
-      ? functionName.split(".").pop() ?? functionName
-      : functionName;
-    return this.functions.includes(baseName);
+    // If function has a prefix, only handle if it's our prefix
+    if (functionName.includes(".")) {
+      const [prefix, baseName] = functionName.split(".");
+      if (prefix !== this.name) {
+        return false; // Different plugin's function
+      }
+      return this.functions.includes(baseName);
+    }
+    // No prefix - check if it's one of our functions
+    return this.functions.includes(functionName);
   }
 
   /**
@@ -754,12 +761,12 @@ export class LinearPlugin implements KimiUtilityPlugin {
             parameters: {
               type: "object",
               properties: {
-                team_key: {
+                team: {
                   type: "string",
-                  description: "Team key (e.g., 'ENG', 'PROD'). Case-insensitive.",
+                  description: "Team key/identifier (e.g., 'ENG', 'PROD', 'COC'). Case-insensitive.",
                 },
               },
-              required: ["team_key"],
+              required: ["team"],
             },
           },
           {
@@ -771,9 +778,9 @@ export class LinearPlugin implements KimiUtilityPlugin {
             parameters: {
               type: "object",
               properties: {
-                team_key: {
+                team: {
                   type: "string",
-                  description: "Team key (e.g., 'ENG'). Case-insensitive.",
+                  description: "Team key/identifier (e.g., 'ENG', 'COC'). Case-insensitive.",
                 },
                 assignee: {
                   type: "string",
@@ -781,17 +788,17 @@ export class LinearPlugin implements KimiUtilityPlugin {
                     "Filter by assignee name/email, or 'unassigned' for unassigned issues. " +
                     "Partial match supported.",
                 },
-                state: {
+                status: {
                   type: "string",
                   description:
-                    "Filter by issue state/status (e.g., 'In Progress', 'Todo', 'Done').",
+                    "Filter by issue status (e.g., 'In Progress', 'Todo', 'Done').",
                 },
                 limit: {
                   type: "number",
                   description: "Number of issues to return (max 50). Defaults to 20.",
                 },
               },
-              required: ["team_key"],
+              required: ["team"],
             },
           },
           {

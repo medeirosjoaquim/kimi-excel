@@ -647,11 +647,16 @@ export class GitHubPlugin implements KimiUtilityPlugin {
    * Check if this plugin can handle the given function name
    */
   canHandle(functionName: string): boolean {
-    // Strip plugin prefix if present (e.g., "github.list_repos" -> "list_repos")
-    const baseName = functionName.includes(".")
-      ? functionName.split(".").pop() ?? functionName
-      : functionName;
-    return this.functions.includes(baseName);
+    // If function has a prefix, only handle if it's our prefix
+    if (functionName.includes(".")) {
+      const [prefix, baseName] = functionName.split(".");
+      if (prefix !== this.name) {
+        return false; // Different plugin's function
+      }
+      return this.functions.includes(baseName);
+    }
+    // No prefix - check if it's one of our functions
+    return this.functions.includes(functionName);
   }
 
   /**
