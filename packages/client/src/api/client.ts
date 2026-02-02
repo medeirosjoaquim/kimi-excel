@@ -59,6 +59,13 @@ export interface TokenEstimate {
   total_tokens: number;
 }
 
+export interface GeneratedFileResponse {
+  id: string;
+  filename: string;
+  downloadUrl: string;
+  size: number;
+}
+
 export const api = {
   async uploadFile(file: File): Promise<UploadFileResponse> {
     const formData = new FormData();
@@ -344,6 +351,37 @@ export const api = {
       body: JSON.stringify({ model, messages }),
     });
     const result = await handleResponse<{ success: boolean; data: TokenEstimate }>(response);
+    return result.data;
+  },
+
+  async createGeneratedFile(
+    filename: string,
+    content: string,
+    mimeType?: string
+  ): Promise<GeneratedFileResponse> {
+    const response = await fetch(`${API_BASE}/files/generated`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ filename, content, mimeType }),
+    });
+    const result = await handleResponse<{ success: boolean; data: GeneratedFileResponse }>(response);
+    return result.data;
+  },
+
+  async createExcelFromCsv(
+    filename: string,
+    csvContent: string
+  ): Promise<GeneratedFileResponse> {
+    const response = await fetch(`${API_BASE}/files/csv-to-excel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ filename, csvContent }),
+    });
+    const result = await handleResponse<{ success: boolean; data: GeneratedFileResponse }>(response);
     return result.data;
   },
 };
