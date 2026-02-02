@@ -5,6 +5,7 @@ import * as os from "node:os";
 import { uploadFile, listFiles, getFile, deleteFile, findDuplicates, deduplicateFiles } from "../controllers/files.controller.js";
 import { analyzeFile } from "../controllers/analysis.controller.js";
 import { chat } from "../controllers/chat.controller.js";
+import { getBalance, estimateTokens } from "../controllers/usage.controller.js";
 import {
   exportConversation,
   exportAnalysisResult,
@@ -56,6 +57,10 @@ router.post("/files/:id/analyze", analysisRateLimitMiddleware, analyzeFile);
 
 // Chat route (multi-file context)
 router.post("/chat", analysisRateLimitMiddleware, chat);
+
+// Usage routes
+router.get("/usage/balance", getBalance);
+router.post("/usage/estimate-tokens", estimateTokens);
 
 // Export routes
 router.get("/export/download/:exportId", downloadExport);
