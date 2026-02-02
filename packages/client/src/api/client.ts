@@ -40,6 +40,19 @@ interface ChatStreamRequest {
   history?: { role: "user" | "assistant"; content: string }[];
   model?: string;
   usePlugin?: boolean;
+  userTimezone?: string; // User's IANA timezone (auto-detected if not provided)
+}
+
+/**
+ * Detect the user's timezone from the browser
+ * Returns IANA timezone identifier (e.g., "America/New_York")
+ */
+function getUserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
 }
 
 interface ChatStreamCallbacks {
@@ -198,9 +211,15 @@ export const api = {
 
     logger.info("API", `chatStream called for conversation ${request.conversationId}`);
 
+    // Auto-detect timezone if not provided
+    const requestWithTimezone = {
+      ...request,
+      userTimezone: request.userTimezone || getUserTimezone(),
+    };
+
     (async () => {
       try {
-        logger.debug("API", `Starting chat stream fetch to ${API_BASE}/chat`);
+        logger.debug("API", `Starting chat stream fetch to ${API_BASE}/chat (timezone: ${requestWithTimezone.userTimezone})`);
 
         const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
@@ -208,7 +227,7 @@ export const api = {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
           },
-          body: JSON.stringify(request),
+          body: JSON.stringify(requestWithTimezone),
           signal: controller.signal,
         });
 
