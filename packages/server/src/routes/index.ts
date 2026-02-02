@@ -6,6 +6,7 @@ import { uploadFile, listFiles, getFile, deleteFile, findDuplicates, deduplicate
 import { analyzeFile } from "../controllers/analysis.controller.js";
 import { chat } from "../controllers/chat.controller.js";
 import { getBalance, estimateTokens } from "../controllers/usage.controller.js";
+import { createGeneratedFile, downloadGeneratedFile, csvToExcel } from "../controllers/generated-files.controller.js";
 import { uploadRateLimitMiddleware, analysisRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
 
 const router: RouterType = Router();
@@ -54,5 +55,10 @@ router.post("/chat", analysisRateLimitMiddleware, chat);
 // Usage routes
 router.get("/usage/balance", getBalance);
 router.post("/usage/estimate-tokens", estimateTokens);
+
+// Generated files routes
+router.post("/files/generated", createGeneratedFile);
+router.post("/files/csv-to-excel", csvToExcel);
+router.get("/files/generated/:id", downloadGeneratedFile);
 
 export { router };
