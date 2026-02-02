@@ -10,8 +10,11 @@ import type {
 } from "@kimi-excel/shared";
 import type { KimiPlugin } from "../domain/interfaces/KimiPlugin.js";
 import { getPluginRegistry } from "../infrastructure/bootstrap.js";
+import { logger } from "../lib/logger.js";
 
 const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
+const MAX_TOOL_ITERATIONS = 10; // Prevent infinite loops
+const log = logger.kimi;
 
 export interface AnalyzeOptions {
   model?: string;
@@ -40,36 +43,97 @@ export class KimiService {
     const absolutePath = path.resolve(filePath);
 
     if (!fs.existsSync(absolutePath)) {
+      log.error("File not found", { path: absolutePath });
       throw new Error(`File not found: ${absolutePath}`);
     }
 
-    const file = fs.createReadStream(absolutePath);
+    try {
+      const file = fs.createReadStream(absolutePath);
 
-    const response = await this.client.files.create({
-      file,
-      purpose: "file-extract" as "assistants",
-    });
+      log.debug("Uploading file to Kimi", { path: absolutePath });
+      const response = await this.client.files.create({
+        file,
+        purpose: "file-extract" as "assistants",
+      });
 
-    return response as unknown as KimiUploadResponse;
+      log.info("File uploaded successfully", {
+        fileId: response.id,
+        filename: response.filename,
+      });
+      return response as unknown as KimiUploadResponse;
+    } catch (error) {
+      log.error("Failed to upload file", {
+        path: absolutePath,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async getFileInfo(fileId: string): Promise<KimiFileInfo> {
-    const response = await this.client.files.retrieve(fileId);
-    return response as unknown as KimiFileInfo;
+    try {
+      log.debug("Fetching file info", { fileId });
+      const response = await this.client.files.retrieve(fileId);
+      return response as unknown as KimiFileInfo;
+    } catch (error) {
+      log.error("Failed to fetch file info", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async listFiles(): Promise<KimiFileInfo[]> {
-    const response = await this.client.files.list();
-    return response.data as unknown as KimiFileInfo[];
+    try {
+      log.debug("Listing files from Kimi");
+      const response = await this.client.files.list();
+      log.debug("Files listed successfully", { count: response.data.length });
+      return response.data as unknown as KimiFileInfo[];
+    } catch (error) {
+      log.error("Failed to list files", {
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async deleteFile(fileId: string): Promise<void> {
-    await this.client.files.del(fileId);
+    try {
+      log.debug("Deleting file", { fileId });
+      await this.client.files.del(fileId);
+      log.info("File deleted successfully", { fileId });
+    } catch (error) {
+      log.error("Failed to delete file", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async getFileContent(fileId: string): Promise<string> {
-    const response = await this.client.files.content(fileId);
-    return response.text();
+    try {
+      log.debug("Fetching file content", { fileId });
+      const response = await this.client.files.content(fileId);
+      const content = await response.text();
+      log.debug("File content fetched successfully", {
+        fileId,
+        contentLength: content.length,
+      });
+      return content;
+    } catch (error) {
+      log.error("Failed to fetch file content", {
+        fileId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   async analyzeFile(
@@ -144,70 +208,261 @@ export class KimiService {
     plugin?: KimiPlugin,
     abortSignal?: AbortSignal
   ): Promise<AnalysisResult> {
-    const requestParams: OpenAI.ChatCompletionCreateParamsStreaming = {
-      model,
-      messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
-      temperature: 0.6,
-      max_tokens: 8192,
-      top_p: 1,
-      stream: true,
-    };
+    log.debug("Starting stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
 
-    if (plugin) {
-      requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
-    }
-
-    const stream = await this.client.chat.completions.create(requestParams);
-
+    // Clone messages for the agentic loop
+    const conversationMessages = [...messages];
     let fullContent = "";
-    const toolCalls: AnalysisResult["toolCalls"] = [];
+    const allToolCalls: AnalysisResult["toolCalls"] = [];
+    let iteration = 0;
 
-    try {
-      for await (const chunk of stream) {
-        // Check if aborted
-        if (abortSignal?.aborted) {
-          // Cancel the stream
-          stream.controller.abort();
-          throw new Error("ABORTED");
-        }
+    // Agentic loop: continue until no more tool calls or max iterations reached
+    while (iteration < MAX_TOOL_ITERATIONS) {
+      iteration++;
+      log.debug(`Agentic loop iteration ${iteration}`, { messageCount: conversationMessages.length });
 
-        const choice = chunk.choices[0];
+      const requestParams: OpenAI.ChatCompletionCreateParamsStreaming = {
+        model,
+        messages: conversationMessages as unknown as OpenAI.ChatCompletionMessageParam[],
+        temperature: 0.6,
+        max_tokens: 8192,
+        top_p: 1,
+        stream: true,
+      };
 
-        if (choice?.delta?.content) {
-          fullContent += choice.delta.content;
-          onChunk?.(choice.delta.content);
-        }
+      if (plugin) {
+        log.debug("Using plugin", { pluginName: plugin.name });
+        requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
+      }
 
-        if (choice?.delta?.tool_calls) {
-          for (const tc of choice.delta.tool_calls) {
-            const existingCall = toolCalls.find((t) => t.index === tc.index);
-            if (existingCall && tc.function?.arguments) {
-              existingCall._plugin.arguments += tc.function.arguments;
-            } else if (tc.id) {
-              const newToolCall: KimiPluginToolCall = {
-                index: tc.index ?? toolCalls.length,
-                id: tc.id,
-                type: "_plugin",
-                _plugin: {
-                  name: tc.function?.name ?? "",
-                  arguments: tc.function?.arguments ?? "",
-                },
+      log.debug("Creating chat completion stream");
+      let stream;
+      try {
+        stream = await this.client.chat.completions.create(requestParams);
+        log.debug("Stream created successfully");
+      } catch (error) {
+        log.error("Failed to create chat completion stream", {
+          iteration,
+          model,
+          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
+        throw error;
+      }
+
+      let iterationContent = "";
+      const iterationToolCalls: KimiPluginToolCall[] = [];
+      const toolResults: Map<string, string> = new Map(); // Capture tool results from stream
+      let chunkIndex = 0;
+
+      try {
+        for await (const chunk of stream) {
+          chunkIndex++;
+          // Check if aborted
+          if (abortSignal?.aborted) {
+            log.debug("Stream aborted by signal");
+            throw new Error("ABORTED");
+          }
+
+          // Log full chunk structure for first few chunks and when interesting
+          if (chunkIndex <= 3 || chunk.choices[0]?.finish_reason) {
+            log.debug(`Stream chunk #${chunkIndex}`, {
+              id: chunk.id,
+              object: chunk.object,
+              finish_reason: chunk.choices[0]?.finish_reason,
+              choiceIndex: chunk.choices[0]?.index,
+              hasContent: !!chunk.choices[0]?.delta?.content,
+              hasToolCalls: !!chunk.choices[0]?.delta?.tool_calls,
+              deltaKeys: Object.keys(chunk.choices[0]?.delta || {}),
+            });
+          }
+
+          const choice = chunk.choices[0];
+
+          // Extended delta type for Kimi-specific fields
+          const delta = choice?.delta as {
+            reasoning_content?: string;
+            content?: string;
+            tool_calls?: OpenAI.ChatCompletionChunk.Choice.Delta.ToolCall[];
+            tool_result?: { tool_call_id: string; content: string }; // Potential Kimi field
+          };
+
+          // Log when we see unexpected fields
+          const deltaKeys = Object.keys(delta || {}).filter(k =>
+            (delta as Record<string, unknown>)[k] !== undefined &&
+            (delta as Record<string, unknown>)[k] !== null
+          );
+          const expectedKeys = ['role', 'content', 'tool_calls', 'refusal'];
+          const unexpectedKeys = deltaKeys.filter(k => !expectedKeys.includes(k));
+          if (unexpectedKeys.length > 0) {
+            log.info("Unexpected delta fields detected", {
+              unexpectedKeys,
+              allKeys: deltaKeys,
+              chunkIndex
+            });
+          }
+
+          // Handle reasoning_content (Kimi-specific field for thinking)
+          if (delta?.reasoning_content) {
+            log.debug("Reasoning content received", { length: delta.reasoning_content.length });
+          }
+
+          // Handle tool_result if Kimi provides it directly
+          if (delta?.tool_result) {
+            log.debug("Tool result received", { toolCallId: delta.tool_result.tool_call_id });
+            toolResults.set(delta.tool_result.tool_call_id, delta.tool_result.content);
+          }
+
+          if (delta?.content) {
+            iterationContent += delta.content;
+            fullContent += delta.content;
+            onChunk?.(delta.content);
+          }
+
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              // Kimi uses _plugin format, not function format
+              const tcAny = tc as unknown as {
+                index?: number;
+                id?: string;
+                type?: string;
+                _plugin?: { name?: string; arguments?: string };
+                function?: { name?: string; arguments?: string };
               };
-              toolCalls.push(newToolCall);
-              onToolCall?.(newToolCall);
+
+              const existingCall = iterationToolCalls.find((t) => t.index === tcAny.index);
+
+              if (existingCall) {
+                // Accumulate arguments for existing tool call
+                const newArgs = tcAny._plugin?.arguments ?? tcAny.function?.arguments;
+                if (newArgs) {
+                  existingCall._plugin.arguments += newArgs;
+                }
+                // Update id if we get it in a later chunk
+                if (tcAny.id && existingCall.id.startsWith('pending_')) {
+                  existingCall.id = tcAny.id;
+                  allToolCalls.push(existingCall);
+                  onToolCall?.(existingCall);
+                }
+              } else if (tcAny.index !== undefined) {
+                // New tool call - extract name from _plugin or function format
+                const toolName = tcAny._plugin?.name ?? tcAny.function?.name ?? "";
+                const toolArgs = tcAny._plugin?.arguments ?? tcAny.function?.arguments ?? "";
+
+                const newToolCall: KimiPluginToolCall = {
+                  index: tcAny.index,
+                  id: tcAny.id ?? `pending_${tcAny.index}`,
+                  type: "_plugin",
+                  _plugin: {
+                    name: toolName,
+                    arguments: toolArgs,
+                  },
+                };
+                iterationToolCalls.push(newToolCall);
+
+                // Only notify and track if we have an id
+                if (tcAny.id) {
+                  allToolCalls.push(newToolCall);
+                  onToolCall?.(newToolCall);
+                }
+
+                log.debug("New tool call detected", {
+                  index: tcAny.index,
+                  id: tcAny.id,
+                  name: toolName,
+                  type: tcAny.type
+                });
+              }
             }
           }
         }
+      } catch (error) {
+        if (error instanceof Error && error.message === "ABORTED") {
+          log.debug("Stream aborted, returning partial result");
+          return { content: fullContent, toolCalls: allToolCalls };
+        }
+        log.error("Error reading stream", {
+          iteration,
+          chunkIndex,
+          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
+        throw error;
       }
-    } catch (error) {
-      if (error instanceof Error && error.message === "ABORTED") {
-        // Return partial content on abort
-        return { content: fullContent, toolCalls };
+
+      log.debug(`Iteration ${iteration} completed`, {
+        contentLength: iterationContent.length,
+        toolCallCount: iterationToolCalls.length,
+        totalChunks: chunkIndex,
+        toolResultsCollected: toolResults.size,
+      });
+
+      // If no tool calls in this iteration, we're done
+      if (iterationToolCalls.length === 0) {
+        log.debug("No tool calls, ending agentic loop", { totalIterations: iteration });
+        break;
       }
-      throw error;
+
+      // Tool calls were made - append assistant message with tool_calls to conversation
+      log.debug("Tool calls received, continuing agentic loop", {
+        toolCallCount: iterationToolCalls.length,
+        tools: iterationToolCalls.map(tc => tc._plugin.name),
+        hasToolResults: toolResults.size > 0,
+      });
+
+      // Add assistant message with tool_calls
+      const assistantMessage: KimiMessage = {
+        role: "assistant",
+        content: iterationContent,
+        tool_calls: iterationToolCalls,
+      };
+      conversationMessages.push(assistantMessage);
+
+      // For _plugin tools executed by Kimi, we need to include tool result messages
+      // Kimi's _plugin system executes tools server-side and provides results
+      // The tool_call_id references Kimi's internal execution cache
+      for (const toolCall of iterationToolCalls) {
+        // Check if we captured results from the stream
+        const resultContent = toolResults.get(toolCall.id);
+
+        if (resultContent) {
+          // We got results from the stream
+          const toolResultMessage: KimiMessage = {
+            role: "tool",
+            content: resultContent,
+            tool_call_id: toolCall.id,
+          };
+          conversationMessages.push(toolResultMessage);
+          log.debug("Added tool result from stream", {
+            toolCallId: toolCall.id,
+            contentLength: resultContent.length
+          });
+        } else {
+          // For _plugin tools, Kimi handles execution internally
+          // Empty content works - Kimi uses the tool_call_id to reference its cached execution result
+          const toolResultMessage: KimiMessage = {
+            role: "tool",
+            content: "", // Empty - Kimi fills with actual execution results
+            tool_call_id: toolCall.id,
+          };
+          conversationMessages.push(toolResultMessage);
+          log.debug("Added empty tool result for _plugin (Kimi fills internally)", {
+            toolCallId: toolCall.id,
+            toolName: toolCall._plugin.name
+          });
+        }
+      }
+
+      log.debug("Conversation updated for next iteration", {
+        messageCount: conversationMessages.length
+      });
     }
 
-    return { content: fullContent, toolCalls };
+    if (iteration >= MAX_TOOL_ITERATIONS) {
+      log.warn("Max tool iterations reached", { maxIterations: MAX_TOOL_ITERATIONS });
+    }
+
+    return { content: fullContent, toolCalls: allToolCalls };
   }
 
   private async nonStreamAnalysis(
@@ -215,42 +470,54 @@ export class KimiService {
     model: string,
     plugin?: KimiPlugin
   ): Promise<AnalysisResult> {
-    const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
-      temperature: 0.6,
-      max_tokens: 8192,
-      top_p: 1,
-      stream: false,
-    };
+    try {
+      log.debug("Starting non-stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
 
-    if (plugin) {
-      requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
-    }
+      const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+        model,
+        messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
+        temperature: 0.6,
+        max_tokens: 8192,
+        top_p: 1,
+        stream: false,
+      };
 
-    const response = await this.client.chat.completions.create(requestParams);
+      if (plugin) {
+        requestParams.tools = [plugin.getToolDefinition()] as unknown as OpenAI.ChatCompletionTool[];
+      }
 
-    const choice = response.choices[0];
-    const content = choice?.message?.content ?? "";
-    const toolCalls: AnalysisResult["toolCalls"] = [];
+      const response = await this.client.chat.completions.create(requestParams);
 
-    if (choice?.message?.tool_calls) {
-      for (const [index, tc] of choice.message.tool_calls.entries()) {
-        if (tc.function) {
-          toolCalls.push({
-            index,
-            id: tc.id,
-            type: "_plugin",
-            _plugin: {
-              name: tc.function.name ?? "",
-              arguments: tc.function.arguments ?? "",
-            },
-          });
+      const choice = response.choices[0];
+      const content = choice?.message?.content ?? "";
+      const toolCalls: AnalysisResult["toolCalls"] = [];
+
+      if (choice?.message?.tool_calls) {
+        for (const [index, tc] of choice.message.tool_calls.entries()) {
+          if (tc.function) {
+            toolCalls.push({
+              index,
+              id: tc.id,
+              type: "_plugin",
+              _plugin: {
+                name: tc.function.name ?? "",
+                arguments: tc.function.arguments ?? "",
+              },
+            });
+          }
         }
       }
-    }
 
-    return { content, toolCalls };
+      log.debug("Non-stream analysis completed", { contentLength: content.length, toolCallCount: toolCalls.length });
+      return { content, toolCalls };
+    } catch (error) {
+      log.error("Failed to complete non-stream analysis", {
+        model,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      throw error;
+    }
   }
 
   private inferFileType(filename: string): string {
@@ -278,18 +545,23 @@ export class KimiService {
       history = [],
     } = options;
 
+    log.info("analyzeWithContext called", { fileCount: fileIds.length, usePlugin, historyLength: history.length });
+
     // Get plugin registry
     const registry = getPluginRegistry();
 
     // Collect file info for all files
+    log.debug("Fetching file info", { fileIds });
     const fileInfoList = await Promise.all(
       fileIds.map(async (fileId) => this.getFileInfo(fileId))
     );
+    log.debug("File info fetched", { files: fileInfoList.map(f => f.filename) });
 
     // Find the appropriate plugin for these files (if using plugins)
     let plugin: KimiPlugin | null = null;
     if (usePlugin && fileIds.length > 0) {
       plugin = registry.getPluginForFiles(fileInfoList);
+      log.debug("Plugin selected", { pluginName: plugin?.name ?? "none" });
     }
 
     // Build file info objects using plugin or fallback
@@ -357,6 +629,8 @@ export class KimiService {
       role: "user",
       content: question,
     });
+
+    log.debug("Messages prepared", { messageCount: messages.length, stream });
 
     if (stream) {
       return this.streamAnalysis(messages, model, onChunk, onToolCall, plugin ?? undefined, options.abortSignal);

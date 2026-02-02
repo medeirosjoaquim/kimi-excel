@@ -15,20 +15,32 @@ export function AttachmentPreview() {
   }
 
   return (
-    <div className="attachment-preview">
+    <div 
+      className="attachment-preview"
+      role="region"
+      aria-label={`Pending attachments: ${pendingAttachments.length}`}
+    >
       {pendingAttachments.map((att) => (
-        <div key={att.fileId} className="attachment-preview-item">
-          <span className="attachment-preview-icon">F</span>
-          <span className="attachment-preview-name" title={getDisplayName(att.filename)}>
+        <div 
+          key={att.fileId} 
+          className="attachment-preview-item"
+          role="listitem"
+        >
+          <span className="attachment-preview-icon" aria-hidden="true">F</span>
+          <span 
+            className="attachment-preview-name" 
+            title={getDisplayName(att.filename)}
+          >
             {getDisplayName(att.filename)}
           </span>
           <button
             type="button"
             className="attachment-preview-remove"
             onClick={() => removeAttachment(att.fileId)}
+            aria-label={`Remove attachment: ${getDisplayName(att.filename)}`}
             title="Remove attachment"
           >
-            x
+            ×
           </button>
         </div>
       ))}

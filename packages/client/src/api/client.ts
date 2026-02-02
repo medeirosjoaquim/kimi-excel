@@ -3,12 +3,15 @@ import type {
   ListFilesResponse,
   GetFileResponse,
   DeleteFileResponse,
+  FindDuplicatesResponse,
+  DeduplicateFilesResponse,
   AnalyzeFileRequest,
   AnalyzeFileResponse,
   SSEEvent,
   ApiErrorResponse,
   KimiPluginToolCall,
 } from "@kimi-excel/shared";
+import logger from "../lib/logger.js";
 
 const API_BASE = "/api";
 
@@ -46,6 +49,16 @@ interface ChatStreamCallbacks {
   onError?: (message: string) => void;
 }
 
+export interface BalanceInfo {
+  available_balance: number;
+  voucher_balance: number;
+  cash_balance: number;
+}
+
+export interface TokenEstimate {
+  total_tokens: number;
+}
+
 export const api = {
   async uploadFile(file: File): Promise<UploadFileResponse> {
     const formData = new FormData();
@@ -74,6 +87,22 @@ export const api = {
       method: "DELETE",
     });
     return handleResponse<DeleteFileResponse>(response);
+  },
+
+  async findDuplicates(): Promise<FindDuplicatesResponse> {
+    const response = await fetch(`${API_BASE}/files/duplicates`);
+    return handleResponse<FindDuplicatesResponse>(response);
+  },
+
+  async deduplicateFiles(keep: "newest" | "oldest" = "newest"): Promise<DeduplicateFilesResponse> {
+    const response = await fetch(`${API_BASE}/files/duplicates`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ keep }),
+    });
+    return handleResponse<DeduplicateFilesResponse>(response);
   },
 
   async analyzeFile(id: string, request: AnalyzeFileRequest): Promise<AnalyzeFileResponse> {
@@ -177,8 +206,12 @@ export const api = {
   ): { abort: () => void } {
     const controller = new AbortController();
 
+    logger.info("API", `chatStream called for conversation ${request.conversationId}`);
+
     (async () => {
       try {
+        logger.debug("API", `Starting chat stream fetch to ${API_BASE}/chat`);
+
         const response = await fetch(`${API_BASE}/chat`, {
           method: "POST",
           headers: {
@@ -189,26 +222,53 @@ export const api = {
           signal: controller.signal,
         });
 
+        logger.info("API", `Chat stream response: ${response.status} ${response.statusText}`);
+
         if (!response.ok) {
-          const errorData = (await response.json()) as ApiErrorResponse;
-          callbacks.onError?.(errorData.message);
+          try {
+            const errorData = (await response.json()) as ApiErrorResponse;
+            logger.error("API", `Chat stream error: ${errorData.message}`);
+            callbacks.onError?.(errorData.message);
+          } catch (e) {
+            logger.error("API", `Chat stream HTTP error: ${response.status}`);
+            callbacks.onError?.(`HTTP ${response.status}`);
+          }
           return;
         }
 
         const reader = response.body?.getReader();
         if (!reader) {
+          logger.error("API", "No response body for chat stream");
           callbacks.onError?.("No response body");
           return;
         }
 
         const decoder = new TextDecoder();
         let buffer = "";
+        let fullContent = "";
+        const allToolCalls: KimiPluginToolCall[] = [];
+        let isDoneReceived = false;
+
+        logger.debug("API", "Starting to read chat stream");
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            logger.debug("API", `Chat stream complete. Content length: ${fullContent.length}, done event: ${isDoneReceived}`);
+            
+            // If we didn't receive an explicit 'done' event, simulate one
+            if (!isDoneReceived && fullContent.length > 0) {
+              logger.info("API", "Stream ended without done event, calling onDone");
+              callbacks.onDone?.({
+                content: fullContent,
+                toolCalls: allToolCalls,
+              });
+            }
+            break;
+          }
 
-          buffer += decoder.decode(value, { stream: true });
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
 
@@ -216,39 +276,75 @@ export const api = {
             if (line.startsWith("data: ")) {
               try {
                 const event = JSON.parse(line.slice(6)) as SSEEvent;
+                logger.debug("API", `SSE event: ${event.type}`);
+                
                 switch (event.type) {
                   case "chunk":
+                    fullContent += event.content;
                     callbacks.onChunk?.(event.content);
                     break;
                   case "tool_call":
+                    allToolCalls.push(event.toolCall);
                     callbacks.onToolCall?.(event.toolCall);
                     break;
                   case "done":
+                    isDoneReceived = true;
                     callbacks.onDone?.({
-                      content: event.content,
-                      toolCalls: event.toolCalls,
+                      content: event.content || fullContent,
+                      toolCalls: event.toolCalls?.length ? event.toolCalls : allToolCalls,
                     });
                     break;
                   case "error":
+                    logger.warn("API", `SSE error: ${event.message}`);
                     callbacks.onError?.(event.message);
                     break;
                 }
-              } catch {
-                // Ignore parse errors
+              } catch (e) {
+                logger.warn("API", `Failed to parse SSE: ${e instanceof Error ? e.message : String(e)}`);
               }
             }
           }
         }
       } catch (error) {
-        if (error instanceof Error && error.name !== "AbortError") {
-          callbacks.onError?.(error.message);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isAbort = error instanceof Error && error.name === "AbortError";
+
+        if (!isAbort) {
+          logger.error("API", `Chat stream error: ${errorMsg}`);
+          callbacks.onError?.(errorMsg);
+        } else {
+          logger.debug("API", "Chat stream aborted");
         }
       }
     })();
 
     return {
-      abort: () => controller.abort(),
+      abort: () => {
+        logger.debug("API", "Chat stream abort requested");
+        controller.abort();
+      },
     };
+  },
+
+  async getBalance(): Promise<BalanceInfo> {
+    const response = await fetch(`${API_BASE}/usage/balance`);
+    const result = await handleResponse<{ success: boolean; data: BalanceInfo }>(response);
+    return result.data;
+  },
+
+  async estimateTokens(
+    messages: { role: string; content: string }[],
+    model: string = "kimi-k2-0905-preview"
+  ): Promise<TokenEstimate> {
+    const response = await fetch(`${API_BASE}/usage/estimate-tokens`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, messages }),
+    });
+    const result = await handleResponse<{ success: boolean; data: TokenEstimate }>(response);
+    return result.data;
   },
 };
 
