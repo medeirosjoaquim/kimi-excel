@@ -62,6 +62,16 @@ interface ChatStreamCallbacks {
   onError?: (message: string) => void;
 }
 
+export interface BalanceInfo {
+  available_balance: number;
+  voucher_balance: number;
+  cash_balance: number;
+}
+
+export interface TokenEstimate {
+  total_tokens: number;
+}
+
 export const api = {
   async uploadFile(file: File): Promise<UploadFileResponse> {
     const formData = new FormData();
@@ -333,6 +343,27 @@ export const api = {
         controller.abort();
       },
     };
+  },
+
+  async getBalance(): Promise<BalanceInfo> {
+    const response = await fetch(`${API_BASE}/usage/balance`);
+    const result = await handleResponse<{ success: boolean; data: BalanceInfo }>(response);
+    return result.data;
+  },
+
+  async estimateTokens(
+    messages: { role: string; content: string }[],
+    model: string = "kimi-k2-0905-preview"
+  ): Promise<TokenEstimate> {
+    const response = await fetch(`${API_BASE}/usage/estimate-tokens`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, messages }),
+    });
+    const result = await handleResponse<{ success: boolean; data: TokenEstimate }>(response);
+    return result.data;
   },
 };
 
