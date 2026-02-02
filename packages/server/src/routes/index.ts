@@ -9,7 +9,8 @@ import {
   exportConversation,
   exportAnalysisResult,
   exportRawFile,
-  exportCustomData
+  exportCustomData,
+  downloadExport
 } from "../controllers/export.controller.js";
 import { uploadRateLimitMiddleware, analysisRateLimitMiddleware, exportRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
 
@@ -57,6 +58,7 @@ router.post("/files/:id/analyze", analysisRateLimitMiddleware, analyzeFile);
 router.post("/chat", analysisRateLimitMiddleware, chat);
 
 // Export routes
+router.get("/export/download/:exportId", downloadExport);
 router.post("/export/conversation/:conversationId", exportRateLimitMiddleware, exportConversation);
 router.post("/export/analysis", exportRateLimitMiddleware, exportAnalysisResult);
 router.post("/export/file/:fileId", exportRateLimitMiddleware, exportRawFile);
