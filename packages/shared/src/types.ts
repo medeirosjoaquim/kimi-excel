@@ -240,6 +240,7 @@ export interface ChatRequest {
   fileIds: string[];
   model?: string;
   usePlugin?: boolean;
+  userTimezone?: string; // User's IANA timezone (e.g., "America/New_York")
 }
 
 export interface ChatResponse {
