@@ -245,6 +245,7 @@ export class ExcelPlugin implements KimiPlugin {
         ? " When multiple files are provided, you can cross-reference data between them."
         : "";
 
+    // Note: File generation instructions are appended by kimi.service.ts
     return `You are a helpful data analysis assistant. Analyze the provided Excel/CSV ${plural} and answer questions about them. Use the excel plugin tools to read and analyze the data.${crossRef}`;
   }
 

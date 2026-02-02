@@ -16,6 +16,33 @@ const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
 const MAX_TOOL_ITERATIONS = 10; // Prevent infinite loops
 const log = logger.kimi;
 
+// File generation instructions to be appended to all system prompts
+const FILE_GENERATION_INSTRUCTIONS = `
+
+## File Generation Rules
+When asked to generate, create, export, or make an Excel/CSV file:
+
+**YOU MUST:**
+- Output the actual data directly as CSV text in a \`\`\`csv code block
+- Include column headers as the first row
+- Put actual data values, not code or placeholders
+
+**YOU MUST NOT:**
+- Write Python/code to generate the file - output the DATA directly
+- Output base64 encoded content
+- Provide fake download URLs (like file.io links)
+- Tell users to run scripts
+
+**Example:**
+Here is your data. Save as \`filename.csv\`:
+\`\`\`csv
+Date,Product,Amount
+2024-01-01,Widget,100
+2024-01-02,Gadget,200
+\`\`\`
+
+The system will convert your CSV to a downloadable Excel file.`;
+
 export interface AnalyzeOptions {
   model?: string;
   stream?: boolean;
@@ -598,7 +625,8 @@ export class KimiService {
         {
           role: "system",
           content:
-            "You are a helpful data analysis assistant. Analyze the provided file data and answer questions about it accurately and concisely. When multiple files are provided, you can cross-reference data between them.",
+            "You are a helpful data analysis assistant. Analyze the provided file data and answer questions about it accurately and concisely. When multiple files are provided, you can cross-reference data between them." +
+            FILE_GENERATION_INSTRUCTIONS,
         },
         {
           role: "user",
@@ -611,7 +639,8 @@ export class KimiService {
         {
           role: "system",
           content:
-            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely.",
+            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely." +
+            FILE_GENERATION_INSTRUCTIONS,
         },
       ];
     }
