@@ -3,11 +3,13 @@ import { X, Maximize2, Minimize2 } from "lucide-react";
 import logger, { type LogEntry, type LogSession, useLogStore } from "../lib/logger.js";
 import { useChatStore } from "../stores/useChatStore.js";
 import { useConversationStore } from "../stores/useConversationStore.js";
+import { useUIStore } from "../stores/useUIStore.js";
 
 const isDevelopment = !!(import.meta as any).env?.DEV;
 
 export function DebugPanel() {
-  const [isOpen, setIsOpen] = useState(false);
+  const debugOpen = useUIStore((s) => s.debugOpen);
+  const setDebugOpen = useUIStore((s) => s.setDebugOpen);
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedSession, setSelectedSession] = useState<string>("current");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
@@ -85,7 +87,7 @@ export function DebugPanel() {
 
   // Load sessions and current session info
   useEffect(() => {
-    if (!isOpen) return;
+    if (!debugOpen) return;
 
     const updateInfo = async () => {
       await logger.ready();
@@ -104,11 +106,11 @@ export function DebugPanel() {
     // Poll less frequently in dev mode since we have reactive updates
     const interval = setInterval(updateInfo, isDevelopment ? 5000 : 2000);
     return () => clearInterval(interval);
-  }, [isOpen]);
+  }, [debugOpen]);
 
   // Poll logs only in non-dev mode
   useEffect(() => {
-    if (!isOpen || isDevelopment) return;
+    if (!debugOpen || isDevelopment) return;
 
     const updateLogs = async () => {
       let fetchedLogs: LogEntry[] = [];
@@ -139,7 +141,7 @@ export function DebugPanel() {
     const interval = setInterval(updateLogs, 500);
 
     return () => clearInterval(interval);
-  }, [isOpen, selectedSession]);
+  }, [debugOpen, selectedSession]);
 
   const handleExport = async () => {
     let exported: string;
@@ -202,10 +204,10 @@ export function DebugPanel() {
     }
   };
 
-  if (!isOpen) {
+  if (!debugOpen) {
     return (
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={() => setDebugOpen(true)}
         className="debug-toggle"
         title="Open debug panel (press Ctrl+Shift+D)"
       >
@@ -227,7 +229,7 @@ export function DebugPanel() {
             {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
           <button
-            onClick={() => setIsOpen(false)}
+            onClick={() => setDebugOpen(false)}
             className="debug-window-btn debug-window-btn-close"
             title="Close debug panel"
           >
