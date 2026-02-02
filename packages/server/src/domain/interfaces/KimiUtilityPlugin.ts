@@ -31,9 +31,9 @@ export interface KimiUtilityPlugin {
    * Execute a function from this plugin
    * @param functionName The name of the function to execute
    * @param args The arguments passed to the function
-   * @returns The result as a JSON string
+   * @returns The result as a JSON string (sync or async)
    */
-  execute(functionName: string, args: Record<string, unknown>): string;
+  execute(functionName: string, args: Record<string, unknown>): string | Promise<string>;
 
   /**
    * Get the tool definition for Kimi API
