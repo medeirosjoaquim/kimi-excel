@@ -7,6 +7,9 @@ on:
 jobs:
   review:
     uses: medeirosjoaquim/opencode-reviews/.github/workflows/opencode-manual-review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
     with:
       review_level: 'medium'
       review_focus: 'general'

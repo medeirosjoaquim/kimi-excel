@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FileListItem } from "@kimi-excel/shared";
+import type { FileListItem, DuplicateGroup } from "@kimi-excel/shared";
 import { api } from "../api/client.js";
 
 interface FileState {
@@ -7,7 +7,10 @@ interface FileState {
   selectedFileId: string | null;
   isLoading: boolean;
   isUploading: boolean;
+  isDeduplicating: boolean;
   error: string | null;
+  duplicates: DuplicateGroup[];
+  totalDuplicateFiles: number;
 }
 
 interface FileActions {
@@ -16,6 +19,8 @@ interface FileActions {
   deleteFile: (id: string) => Promise<void>;
   selectFile: (id: string | null) => void;
   clearError: () => void;
+  findDuplicates: () => Promise<void>;
+  deduplicateFiles: (keep?: "newest" | "oldest") => Promise<number>;
 }
 
 type FileStore = FileState & FileActions;
@@ -25,7 +30,10 @@ export const useFileStore = create<FileStore>((set, get) => ({
   selectedFileId: null,
   isLoading: false,
   isUploading: false,
+  isDeduplicating: false,
   error: null,
+  duplicates: [],
+  totalDuplicateFiles: 0,
 
   fetchFiles: async () => {
     set({ isLoading: true, error: null });
@@ -74,5 +82,38 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  findDuplicates: async () => {
+    set({ error: null });
+    try {
+      const response = await api.findDuplicates();
+      set({
+        duplicates: response.duplicates,
+        totalDuplicateFiles: response.totalDuplicateFiles,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to find duplicates";
+      set({ error: message });
+    }
+  },
+
+  deduplicateFiles: async (keep: "newest" | "oldest" = "newest") => {
+    set({ isDeduplicating: true, error: null });
+    try {
+      const response = await api.deduplicateFiles(keep);
+      const deletedCount = response.deleted.length;
+
+      // Clear duplicates state and refresh file list
+      set({ duplicates: [], totalDuplicateFiles: 0 });
+      await get().fetchFiles();
+      set({ isDeduplicating: false });
+
+      return deletedCount;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to deduplicate files";
+      set({ error: message, isDeduplicating: false });
+      throw error;
+    }
   },
 }));

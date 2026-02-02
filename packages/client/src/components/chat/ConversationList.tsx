@@ -1,4 +1,5 @@
 import { useConversationStore } from "../../stores/useConversationStore.js";
+import { useUIStore } from "../../stores/useUIStore.js";
 
 export function ConversationList() {
   const conversations = useConversationStore((s) => s.conversations);
@@ -6,14 +7,23 @@ export function ConversationList() {
   const selectConversation = useConversationStore((s) => s.select);
   const deleteConversation = useConversationStore((s) => s.delete);
   const isLoading = useConversationStore((s) => s.isLoading);
+  const closeSidebarOnMobile = useUIStore((s) => s.closeSidebarOnMobile);
 
   if (isLoading) {
-    return <div className="conversation-list-loading">Loading...</div>;
+    return (
+      <div 
+        className="conversation-list-loading"
+        role="status"
+        aria-live="polite"
+      >
+        Loading conversations...
+      </div>
+    );
   }
 
   if (conversations.length === 0) {
     return (
-      <div className="conversation-list-empty">
+      <div className="conversation-list-empty" role="status">
         No conversations yet. Start a new chat!
       </div>
     );
@@ -36,15 +46,31 @@ export function ConversationList() {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent, id: string) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selectConversation(id);
+      closeSidebarOnMobile();
+    }
+  };
+
   return (
-    <div className="conversation-list">
-      <h3>Chat History</h3>
-      <ul>
+    <nav className="conversation-list" aria-label="Conversation history">
+      <h3 id="conversation-list-heading">Chat History</h3>
+      <ul role="list" aria-labelledby="conversation-list-heading">
         {conversations.map((conv) => (
           <li
             key={conv.id}
             className={`conversation-item ${activeId === conv.id ? "selected" : ""}`}
-            onClick={() => selectConversation(conv.id)}
+            onClick={() => {
+              selectConversation(conv.id);
+              closeSidebarOnMobile();
+            }}
+            onKeyDown={(e) => handleKeyDown(e, conv.id)}
+            role="button"
+            tabIndex={0}
+            aria-current={activeId === conv.id ? "true" : undefined}
+            aria-label={`${conv.title}, updated ${formatDate(conv.updatedAt)}${activeId === conv.id ? ", current conversation" : ""}`}
           >
             <div className="conversation-info">
               <span className="conversation-title">{conv.title}</span>
@@ -58,13 +84,14 @@ export function ConversationList() {
                 e.stopPropagation();
                 deleteConversation(conv.id);
               }}
+              aria-label={`Delete conversation: ${conv.title}`}
               title="Delete conversation"
             >
-              x
+              ×
             </button>
           </li>
         ))}
       </ul>
-    </div>
+    </nav>
   );
 }
