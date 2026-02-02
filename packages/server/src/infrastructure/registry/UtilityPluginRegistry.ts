@@ -88,10 +88,10 @@ export class KimiUtilityPluginRegistry implements UtilityPluginRegistry {
    * Execute a function if a plugin can handle it
    * @returns The result string, or null if no plugin can handle the function
    */
-  executeFunction(
+  async executeFunction(
     functionName: string,
     args: Record<string, unknown>
-  ): string | null {
+  ): Promise<string | null> {
     const plugin = this.findPluginForFunction(functionName);
     if (plugin) {
       log.debug("Executing utility function", {
@@ -99,7 +99,7 @@ export class KimiUtilityPluginRegistry implements UtilityPluginRegistry {
         plugin: plugin.name,
       });
       try {
-        const result = plugin.execute(functionName, args);
+        const result = await plugin.execute(functionName, args);
         log.debug("Utility function executed", {
           functionName,
           resultLength: result.length,
