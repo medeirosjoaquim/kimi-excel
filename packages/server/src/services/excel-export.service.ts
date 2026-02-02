@@ -1,6 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type { ChatMessage, KimiPluginToolCall } from "@kimi-excel/shared";
 import { createWorkbook, addDataSheet, addMetadataSheet } from "../lib/excel-builder.js";
 import { getKimiService } from "./kimi.service.js";
@@ -8,7 +9,52 @@ import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("ExcelExport");
 
+// In-memory cache for exported files (exportId -> { filePath, filename, createdAt })
+const exportCache = new Map<string, { filePath: string; filename: string; createdAt: number }>();
+
+// Cleanup old exports after 1 hour
+const EXPORT_TTL_MS = 60 * 60 * 1000;
+
+function cleanupOldExports(): void {
+  const now = Date.now();
+  for (const [exportId, entry] of exportCache.entries()) {
+    if (now - entry.createdAt > EXPORT_TTL_MS) {
+      fs.unlink(entry.filePath).catch(() => {});
+      exportCache.delete(exportId);
+      log.debug("Cleaned up old export", { exportId });
+    }
+  }
+}
+
+// Run cleanup every 10 minutes
+setInterval(cleanupOldExports, 10 * 60 * 1000);
+
 export class ExcelExportService {
+  /**
+   * Register an export and return the export ID
+   */
+  registerExport(filePath: string, filename: string): string {
+    const exportId = randomUUID();
+    exportCache.set(exportId, {
+      filePath,
+      filename,
+      createdAt: Date.now(),
+    });
+    log.debug("Export registered", { exportId, filename });
+    return exportId;
+  }
+
+  /**
+   * Get export info by ID
+   */
+  getExport(exportId: string): { filePath: string; filename: string } | null {
+    const entry = exportCache.get(exportId);
+    if (!entry) {
+      return null;
+    }
+    return { filePath: entry.filePath, filename: entry.filename };
+  }
+
   /**
    * Export conversation messages to Excel
    */
