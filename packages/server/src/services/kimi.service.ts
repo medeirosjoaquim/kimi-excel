@@ -458,7 +458,7 @@ export class KimiService {
           }
 
           // Try to execute via utility plugin
-          resultContent = utilityRegistry.executeFunction(functionName, args) ?? undefined;
+          resultContent = (await utilityRegistry.executeFunction(functionName, args)) ?? undefined;
 
           if (resultContent) {
             log.debug("Executed utility plugin function", {
