@@ -19,23 +19,27 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
 
   readonly autoInclude = true;
 
+  private readonly functions = [
+    "export_conversation",
+    "export_analysis_result",
+    "export_file_data",
+    "export_to_excel",
+  ];
+
   /**
    * Check if this plugin can handle the given function name
    */
   canHandle(functionName: string): boolean {
-    const functions = [
-      "export_conversation",
-      "export_analysis_result",
-      "export_file_data",
-      "export_to_excel",
-    ];
-
-    // Strip plugin prefix if present (e.g., "excel_export.export_to_excel" -> "export_to_excel")
-    const baseName = functionName.includes(".")
-      ? functionName.split(".").pop() ?? functionName
-      : functionName;
-
-    return functions.includes(baseName);
+    // If function has a prefix, only handle if it's our prefix
+    if (functionName.includes(".")) {
+      const [prefix, baseName] = functionName.split(".");
+      if (prefix !== this.name) {
+        return false; // Different plugin's function
+      }
+      return this.functions.includes(baseName);
+    }
+    // No prefix - check if it's one of our functions
+    return this.functions.includes(functionName);
   }
 
   /**
@@ -72,13 +76,14 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
           }
 
           const filePath = await exportService.exportConversation(conversationId, messages);
+          const exportFilename = `conversation-${conversationId}-${Date.now()}.xlsx`;
+          const exportId = exportService.registerExport(filePath, exportFilename);
 
           return JSON.stringify({
             success: true,
             message: `Conversation exported successfully with ${messages.length} messages`,
-            filePath,
-            downloadUrl: `/api/export/conversation/${conversationId}`,
-            filename: `conversation-${conversationId}-${Date.now()}.xlsx`,
+            downloadUrl: `/api/export/download/${exportId}`,
+            filename: exportFilename,
           });
         }
 
@@ -101,13 +106,14 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
           }
 
           const filePath = await exportService.exportAnalysisResult(fileId, toolCallData);
+          const exportFilename = `analysis-${fileId}-${Date.now()}.xlsx`;
+          const exportId = exportService.registerExport(filePath, exportFilename);
 
           return JSON.stringify({
             success: true,
             message: "Analysis result exported successfully",
-            filePath,
-            downloadUrl: `/api/export/analysis`,
-            filename: `analysis-${fileId}-${Date.now()}.xlsx`,
+            downloadUrl: `/api/export/download/${exportId}`,
+            filename: exportFilename,
           });
         }
 
@@ -123,13 +129,14 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
           }
 
           const filePath = await exportService.exportRawFile(fileId, sheetName);
+          const exportFilename = `file-${fileId}-${Date.now()}.xlsx`;
+          const exportId = exportService.registerExport(filePath, exportFilename);
 
           return JSON.stringify({
             success: true,
             message: "File data exported successfully",
-            filePath,
-            downloadUrl: `/api/export/file/${fileId}`,
-            filename: `file-${fileId}-${Date.now()}.xlsx`,
+            downloadUrl: `/api/export/download/${exportId}`,
+            filename: exportFilename,
           });
         }
 
@@ -153,13 +160,14 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
           }
 
           const filePath = await exportService.exportCustomData(data, headers, filename);
+          const exportFilename = `${filename || "export"}-${Date.now()}.xlsx`;
+          const exportId = exportService.registerExport(filePath, exportFilename);
 
           return JSON.stringify({
             success: true,
             message: `Custom data exported successfully with ${data.length} rows`,
-            filePath,
-            downloadUrl: `/api/export/custom`,
-            filename: `${filename || "export"}-${Date.now()}.xlsx`,
+            downloadUrl: `/api/export/download/${exportId}`,
+            filename: exportFilename,
           });
         }
 
@@ -302,8 +310,10 @@ export class ExcelExportPlugin implements KimiUtilityPlugin {
       "- export_file_data: Export the raw data from an uploaded file\n" +
       "- export_to_excel: Export any custom data array (filtered, aggregated, or transformed data)\n" +
       "\n" +
-      "After exporting, inform the user that the Excel file has been generated and provide details about what was exported. " +
-      "Note: The actual file download will be handled by the frontend application."
+      "IMPORTANT: After a successful export, the tool returns a 'downloadUrl' field. " +
+      "You MUST include this download link in your response to the user in markdown format: " +
+      "[Download filename](downloadUrl). For example: [Download report.xlsx](/api/export/download/abc123). " +
+      "This allows the user to click and download the file directly."
     );
   }
 }
