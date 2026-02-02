@@ -12,6 +12,7 @@ interface ChatRequestBody {
   history?: { role: "user" | "assistant"; content: string }[];
   model?: string;
   usePlugin?: boolean;
+  userTimezone?: string; // User's IANA timezone (e.g., "America/New_York")
 }
 
 function sendSSE(res: Response, event: SSEEvent): void {
@@ -81,6 +82,7 @@ export async function chat(
           stream: true,
           usePlugin: body.usePlugin,
           history: body.history,
+          userTimezone: body.userTimezone,
           abortSignal: abortController.signal,
           onChunk: (chunk) => {
             if (!isAborted) {
