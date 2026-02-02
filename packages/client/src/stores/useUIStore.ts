@@ -3,6 +3,7 @@ import { create } from "zustand";
 interface UIState {
   sidebarOpen: boolean;
   isMobile: boolean;
+  debugOpen: boolean;
 }
 
 interface UIActions {
@@ -10,13 +11,15 @@ interface UIActions {
   setSidebarOpen: (open: boolean) => void;
   setIsMobile: (isMobile: boolean) => void;
   closeSidebarOnMobile: () => void;
+  setDebugOpen: (open: boolean) => void;
 }
 
 type UIStore = UIState & UIActions;
 
 export const useUIStore = create<UIStore>((set, get) => ({
-  sidebarOpen: true, // Open by default on desktop
+  sidebarOpen: true,
   isMobile: false,
+  debugOpen: false,
 
   toggleSidebar: () => {
     set((state) => ({ sidebarOpen: !state.sidebarOpen }));
@@ -28,7 +31,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setIsMobile: (isMobile: boolean) => {
     set({ isMobile });
-    // Auto-close sidebar when switching to mobile
     if (isMobile) {
       set({ sidebarOpen: false });
     }
@@ -39,5 +41,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
     if (isMobile) {
       set({ sidebarOpen: false });
     }
+  },
+
+  setDebugOpen: (open: boolean) => {
+    set({ debugOpen: open });
   },
 }));
