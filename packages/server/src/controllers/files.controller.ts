@@ -61,14 +61,23 @@ export async function listFiles(_req: Request, res: Response, next: NextFunction
     const kimiService = getKimiService();
     const files = await kimiService.listFiles();
 
+    // Check which files are still available on Kimi
+    const filesWithStatus = await Promise.all(
+      files.map(async (f) => {
+        const isAvailable = await kimiService.isFileAvailable(f.id);
+        return {
+          id: f.id,
+          filename: f.filename,
+          status: f.status ?? "unknown",
+          createdAt: f.created_at,
+          bytes: f.bytes,
+          isExpired: !isAvailable,
+        };
+      })
+    );
+
     const response: ListFilesResponse = {
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        status: f.status ?? "unknown",
-        createdAt: f.created_at,
-        bytes: f.bytes,
-      })),
+      files: filesWithStatus,
     };
 
     res.json(response);
