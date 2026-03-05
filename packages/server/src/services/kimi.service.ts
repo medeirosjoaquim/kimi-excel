@@ -170,6 +170,20 @@ export class KimiService {
     }
   }
 
+  async isFileAvailable(fileId: string): Promise<boolean> {
+    try {
+      await this.getFileInfo(fileId);
+      return true;
+    } catch (error) {
+      // File not found (404) means it's expired
+      if (error instanceof Error && error.message.includes("404")) {
+        return false;
+      }
+      // Re-throw other errors
+      throw error;
+    }
+  }
+
   async deleteFile(fileId: string): Promise<void> {
     try {
       log.debug("Deleting file", { fileId });
