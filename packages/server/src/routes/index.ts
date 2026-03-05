@@ -8,6 +8,7 @@ import { chat } from "../controllers/chat.controller.js";
 import { getBalance, estimateTokens } from "../controllers/usage.controller.js";
 import { createGeneratedFile, downloadGeneratedFile, csvToExcel } from "../controllers/generated-files.controller.js";
 import { uploadRateLimitMiddleware, analysisRateLimitMiddleware } from "../middlewares/rate-limit.middleware.js";
+import { isImageFile, isDataFile } from "../services/kimi.service.js";
 
 const router: RouterType = Router();
 
@@ -28,12 +29,12 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
   fileFilter: (_req, file, cb) => {
-    const allowedExtensions = [".xlsx", ".xls", ".csv", ".tsv", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedExtensions.includes(ext)) {
+    const isSupported = isImageFile(file.originalname) || isDataFile(file.originalname);
+    if (isSupported) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${ext}. Allowed types: ${allowedExtensions.join(", ")}`));
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(new Error(`Invalid file type: ${ext}. Supported: Excel, CSV, Markdown, Text, PDF, Word, JSON, Images`));
     }
   },
 });
