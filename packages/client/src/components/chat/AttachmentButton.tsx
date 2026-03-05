@@ -25,6 +25,7 @@ export function AttachmentButton() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const files = useFileStore((s) => s.files);
+  const isLoading = useFileStore((s) => s.isLoading);
   const fetchFiles = useFileStore((s) => s.fetchFiles);
   const deleteFile = useFileStore((s) => s.deleteFile);
   const duplicates = useFileStore((s) => s.duplicates);
@@ -77,8 +78,14 @@ export function AttachmentButton() {
     setIsUploading(true);
     try {
       const response = await api.uploadFile(file);
-      await fetchFiles();
+      // Add attachment immediately without waiting for fetchFiles
       addAttachment({ fileId: response.id, filename: response.filename });
+      // Fetch files in background without blocking UI
+      setTimeout(() => {
+        fetchFiles().catch((error) => {
+          console.error("Failed to refresh file list:", error);
+        });
+      }, 100);
     } catch (error) {
       console.error("Upload failed:", error);
     } finally {
@@ -206,9 +213,10 @@ export function AttachmentButton() {
               <button
                 className="attachment-upload-btn"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
                 aria-label="Upload new file"
               >
-                Upload New File
+                {isUploading ? "Uploading..." : "Upload New File"}
               </button>
 
               <input
@@ -224,10 +232,16 @@ export function AttachmentButton() {
                 Supported file types: Excel, CSV, Markdown, Text, PDF, Word, JSON, and images
               </span>
 
-              {files.length > 0 && (
+              {isLoading && (
+                <div className="attachment-loading" role="status" aria-live="polite">
+                  Loading files...
+                </div>
+              )}
+
+              {!isLoading && files.length > 0 && (
                 <>
                   <div className="attachment-divider" aria-hidden="true">or select existing</div>
-                  <ul 
+                  <ul
                     className="attachment-file-list"
                     role="listbox"
                     aria-label="Available files"
