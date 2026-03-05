@@ -11,9 +11,10 @@ import type {
 } from "@kimi-excel/shared";
 import { ErrorCode } from "@kimi-excel/shared";
 import type { FileUploadRequest } from "../types/index.js";
-import { getKimiService } from "../services/kimi.service.js";
+import { getKimiService, isImageFile } from "../services/kimi.service.js";
 import { AppError } from "../middlewares/error-handler.middleware.js";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 // Extract original filename from server-generated name
 // Pattern: "timestamp-randomId-originalname.ext" -> "originalname.ext"
@@ -29,7 +30,8 @@ export async function uploadFile(req: FileUploadRequest, res: Response, next: Ne
     }
 
     const kimiService = getKimiService();
-    const result = await kimiService.uploadFile(req.file.path);
+    const purpose = isImageFile(req.file.filename) ? "image" : "file-extract";
+    const result = await kimiService.uploadFile(req.file.path, purpose);
 
     // Clean up the temporary file
     if (fs.existsSync(req.file.path)) {

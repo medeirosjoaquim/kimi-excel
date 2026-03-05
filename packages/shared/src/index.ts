@@ -1,9 +1,14 @@
 export { ErrorCode } from "./types.js";
 
 export type {
+  // Moonshot API Types
+  MoonshotFilePurpose,
   // Kimi API Types
   KimiPluginToolCall,
   KimiMessage,
+  KimiMessageContent,
+  KimiMessageContentImage,
+  KimiMessageContentText,
   ExcelPluginFunction,
   ExcelPluginTool,
   KimiFileInfo,

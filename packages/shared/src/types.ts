@@ -30,6 +30,25 @@ export enum ErrorCode {
 }
 
 // ==========================================
+// Moonshot API Types
+// ==========================================
+
+/**
+ * File purposes supported by Moonshot Kimi API.
+ *
+ * Kimi accepts the following file purposes:
+ * - `file-extract`: For data files (Excel, CSV, etc.) to be analyzed and extracted
+ * - `image`: For image files to enable vision/image analysis capabilities
+ * - `video`: For video files (if supported)
+ * - `batch`: For batch processing operations
+ * - `batch_output`: For batch processing output files
+ * - `lambda`: For Lambda function operations
+ *
+ * @see https://platform.moonshot.ai/docs/guide/file-upload
+ */
+export type MoonshotFilePurpose = "file-extract" | "image" | "video" | "batch" | "batch_output" | "lambda";
+
+// ==========================================
 // Kimi API Types (from original implementation)
 // ==========================================
 
@@ -43,9 +62,23 @@ export interface KimiPluginToolCall {
   };
 }
 
+export interface KimiMessageContentImage {
+  type: "image_url";
+  image_url: {
+    url: string; // base64 data URL or ms://file_id
+  };
+}
+
+export interface KimiMessageContentText {
+  type: "text";
+  text: string;
+}
+
+export type KimiMessageContent = KimiMessageContentText | KimiMessageContentImage;
+
 export interface KimiMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  content: string | KimiMessageContent[];
   name?: string;
   tool_calls?: KimiPluginToolCall[];
   tool_call_id?: string;
@@ -228,9 +261,12 @@ export interface ChatMessage {
   isStreaming?: boolean;
 }
 
+export type AttachmentType = "spreadsheet" | "image";
+
 export interface ChatAttachment {
   fileId: string;
   filename: string;
+  type?: AttachmentType;
 }
 
 // Chat API Request/Response Types

@@ -7,6 +7,8 @@ import type {
   KimiUploadResponse,
   AnalysisResult,
   KimiPluginToolCall,
+  KimiMessageContent,
+  MoonshotFilePurpose,
 } from "@kimi-excel/shared";
 import type { KimiPlugin } from "../domain/interfaces/KimiPlugin.js";
 import { getPluginRegistry } from "../infrastructure/bootstrap.js";
@@ -15,6 +17,31 @@ import { logger } from "../lib/logger.js";
 const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
 const MAX_TOOL_ITERATIONS = 10; // Prevent infinite loops
 const log = logger.kimi;
+
+// Image file extensions
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+
+export function isImageFile(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+// Get appropriate temperature and top_p for different Kimi models
+function getModelParams(model: string): { temperature: number; topP: number } {
+  // kimi-k2.5 has specific requirements
+  if (model.includes("k2.5")) {
+    return { temperature: 1, topP: 0.95 };
+  }
+  // Default parameters for other models
+  return { temperature: 0.6, topP: 1 };
+}
+
+export function getFileType(filename: string): "spreadsheet" | "image" | "other" {
+  const ext = path.extname(filename).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  if ([".xlsx", ".xls", ".csv", ".tsv"].includes(ext)) return "spreadsheet";
+  return "other";
+}
 
 // File generation instructions to be appended to all system prompts
 const FILE_GENERATION_INSTRUCTIONS = `
@@ -66,7 +93,22 @@ export class KimiService {
     });
   }
 
-  async uploadFile(filePath: string): Promise<KimiUploadResponse> {
+  /**
+   * Upload a file to Moonshot Kimi for analysis and storage.
+   *
+   * @param filePath - Absolute path to the file to upload
+   * @param purpose - The intended purpose of the file:
+   *   - `file-extract` (default): For data files (Excel, CSV, etc.) for analysis
+   *   - `image`: For image files to enable vision/image analysis
+   *   - `video`: For video files (if supported by Kimi)
+   *   - `batch`, `batch_output`, `lambda`: For batch/Lambda operations
+   *
+   * @returns Upload response with file ID and metadata
+   * @throws Error if file not found or upload fails
+   *
+   * @see https://platform.moonshot.ai/docs/guide/file-upload
+   */
+  async uploadFile(filePath: string, purpose: MoonshotFilePurpose = "file-extract"): Promise<KimiUploadResponse> {
     const absolutePath = path.resolve(filePath);
 
     if (!fs.existsSync(absolutePath)) {
@@ -77,10 +119,10 @@ export class KimiService {
     try {
       const file = fs.createReadStream(absolutePath);
 
-      log.debug("Uploading file to Kimi", { path: absolutePath });
+      log.debug("Uploading file to Kimi", { path: absolutePath, purpose });
       const response = await this.client.files.create({
         file,
-        purpose: "file-extract" as "assistants",
+        purpose: purpose as unknown as "assistants",
       });
 
       log.info("File uploaded successfully", {
@@ -169,7 +211,7 @@ export class KimiService {
     options: AnalyzeOptions = {}
   ): Promise<AnalysisResult> {
     const {
-      model = "kimi-k2-0905-preview",
+      model = "kimi-k2.5",
       stream = true,
       onChunk,
       onToolCall,
@@ -248,12 +290,13 @@ export class KimiService {
       iteration++;
       log.debug(`Agentic loop iteration ${iteration}`, { messageCount: conversationMessages.length });
 
+      const { temperature, topP } = getModelParams(model);
       const requestParams: OpenAI.ChatCompletionCreateParamsStreaming = {
         model,
         messages: conversationMessages as unknown as OpenAI.ChatCompletionMessageParam[],
-        temperature: 0.6,
+        temperature,
         max_tokens: 8192,
-        top_p: 1,
+        top_p: topP,
         stream: true,
       };
 
@@ -500,12 +543,13 @@ export class KimiService {
     try {
       log.debug("Starting non-stream analysis", { model, messageCount: messages.length, hasPlugin: !!plugin });
 
+      const { temperature, topP } = getModelParams(model);
       const requestParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
         model,
         messages: messages as unknown as OpenAI.ChatCompletionMessageParam[],
-        temperature: 0.6,
+        temperature,
         max_tokens: 8192,
-        top_p: 1,
+        top_p: topP,
         stream: false,
       };
 
@@ -554,6 +598,12 @@ export class KimiService {
       ".xls": "application/vnd.ms-excel",
       ".csv": "text/csv",
       ".tsv": "text/tab-separated-values",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".bmp": "image/bmp",
     };
     return mimeTypes[ext] ?? "application/octet-stream";
   }
@@ -564,7 +614,7 @@ export class KimiService {
     options: ChatOptions = {}
   ): Promise<AnalysisResult> {
     const {
-      model = "kimi-k2-0905-preview",
+      model = "kimi-k2.5",
       stream = true,
       onChunk,
       onToolCall,
@@ -584,40 +634,62 @@ export class KimiService {
     );
     log.debug("File info fetched", { files: fileInfoList.map(f => f.filename) });
 
-    // Find the appropriate plugin for these files (if using plugins)
+    // Separate images from other files
+    const imageFileIds: string[] = [];
+    const otherFileIds: string[] = [];
+    const imageFileInfos: KimiFileInfo[] = [];
+    const otherFileInfos: KimiFileInfo[] = [];
+
+    for (let i = 0; i < fileInfoList.length; i++) {
+      const info = fileInfoList[i];
+      if (isImageFile(info.filename)) {
+        imageFileIds.push(fileIds[i]);
+        imageFileInfos.push(info);
+      } else {
+        otherFileIds.push(fileIds[i]);
+        otherFileInfos.push(info);
+      }
+    }
+
+    log.debug("Files categorized", { 
+      imageCount: imageFileIds.length, 
+      otherCount: otherFileIds.length 
+    });
+
+    // Find the appropriate plugin for non-image files (if using plugins)
     let plugin: KimiPlugin | null = null;
-    if (usePlugin && fileIds.length > 0) {
-      plugin = registry.getPluginForFiles(fileInfoList);
+    if (usePlugin && otherFileIds.length > 0) {
+      plugin = registry.getPluginForFiles(otherFileInfos);
       log.debug("Plugin selected", { pluginName: plugin?.name ?? "none" });
     }
 
     // Build file info objects using plugin or fallback
-    const fileInfos = fileInfoList.map((info, idx) => ({
-      id: fileIds[idx],
+    const otherFileInfosMapped = otherFileInfos.map((info, idx) => ({
+      id: otherFileIds[idx],
       filename: info.filename,
       file_type: info.file_type || (plugin?.inferFileType(info.filename) ?? this.inferFileType(info.filename)),
     }));
 
     let messages: KimiMessage[];
 
-    if (plugin && fileIds.length > 0) {
+    if (plugin && otherFileIds.length > 0) {
       messages = [
         {
           role: "system",
-          content: plugin.getSystemPrompt(fileIds.length),
+          content: plugin.getSystemPrompt(otherFileIds.length),
         },
         {
           role: "system",
-          content: JSON.stringify(fileInfos),
+          content: JSON.stringify(otherFileInfosMapped),
           name: "resource:file-info",
         },
       ];
-    } else if (fileIds.length > 0) {
+    } else if (otherFileIds.length > 0) {
       // Non-plugin mode: fetch and include file contents
       const fileContents = await Promise.all(
-        fileIds.map(async (fileId, idx) => {
+        otherFileIds.map(async (fileId, idx) => {
           const content = await this.getFileContent(fileId);
-          return `=== File: ${fileInfos[idx].filename} ===\n${content}`;
+          return `=== File: ${otherFileInfosMapped[idx].filename} ===\n${content}`;
         })
       );
 
@@ -634,12 +706,12 @@ export class KimiService {
         },
       ];
     } else {
-      // No files, just general chat
+      // No spreadsheet files, just general chat
       messages = [
         {
           role: "system",
           content:
-            "You are a helpful data analysis assistant. You can analyze Excel and CSV files when they are provided. Answer questions accurately and concisely." +
+            "You are a helpful data analysis assistant. You can analyze Excel, CSV files, and images when they are provided. Answer questions accurately and concisely." +
             FILE_GENERATION_INSTRUCTIONS,
         },
       ];
@@ -653,13 +725,42 @@ export class KimiService {
       });
     }
 
+    // Build the user message content - combine text question with images
+    let userContent: string | KimiMessageContent[];
+    
+    if (imageFileIds.length > 0) {
+      // For images, use the multimodal content format
+      const contentParts: KimiMessageContent[] = [];
+      
+      // Add text question
+      contentParts.push({ type: "text", text: question });
+      
+      // Add image references using ms://file_id format
+      for (const imageId of imageFileIds) {
+        contentParts.push({
+          type: "image_url",
+          image_url: { url: `ms://${imageId}` },
+        });
+      }
+      
+      userContent = contentParts;
+    } else {
+      // No images, just text
+      userContent = question;
+    }
+
     // Add current question
     messages.push({
       role: "user",
-      content: question,
-    });
+      content: userContent,
+    } as KimiMessage);
 
-    log.debug("Messages prepared", { messageCount: messages.length, stream });
+    log.debug("Messages prepared", { 
+      messageCount: messages.length, 
+      stream,
+      hasImages: imageFileIds.length > 0,
+      imageCount: imageFileIds.length,
+    });
 
     if (stream) {
       return this.streamAnalysis(messages, model, onChunk, onToolCall, plugin ?? undefined, options.abortSignal);

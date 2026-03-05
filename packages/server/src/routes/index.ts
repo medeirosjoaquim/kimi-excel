@@ -28,12 +28,12 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
   fileFilter: (_req, file, cb) => {
-    const allowedExtensions = [".xlsx", ".xls", ".csv", ".tsv"];
+    const allowedExtensions = [".xlsx", ".xls", ".csv", ".tsv", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedExtensions.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type. Allowed types: ${allowedExtensions.join(", ")}`));
+      cb(new Error(`Invalid file type: ${ext}. Allowed types: ${allowedExtensions.join(", ")}`));
     }
   },
 });

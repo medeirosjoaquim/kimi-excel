@@ -28,7 +28,7 @@ export async function getBalance(_req: Request, res: Response): Promise<void> {
 
 export async function estimateTokens(req: Request, res: Response): Promise<void> {
   try {
-    const { model = "kimi-k2-0905-preview", messages } = req.body;
+    const { model = "kimi-k2.5", messages } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       res.status(400).json({

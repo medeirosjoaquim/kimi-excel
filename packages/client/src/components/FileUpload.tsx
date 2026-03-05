@@ -4,22 +4,36 @@ import { useFileStore } from "../stores/useFileStore.js";
 export function FileUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const { uploadFile, isUploading, error, clearError } = useFileStore();
+  const [localError, setLocalError] = useState<string | null>(null);
+  const { uploadFile, isUploading, error: storeError, clearError } = useFileStore();
+
+  const error = localError || storeError;
 
   const handleFileSelect = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    const validExtensions = [".xlsx", ".xls", ".csv", ".tsv"];
-    const ext = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
+    const validExtensions = [".xlsx", ".xls", ".csv", ".tsv", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+    const lastDotIndex = file.name.lastIndexOf(".");
+    const ext = lastDotIndex >= 0 ? file.name.toLowerCase().substring(lastDotIndex) : "";
 
     if (!validExtensions.includes(ext)) {
+      setLocalError(`Invalid file type: ${ext || "none"}. Supported: .xlsx, .xls, .csv, .tsv, .png, .jpg, .jpeg, .gif, .webp, .bmp`);
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       return;
     }
 
+    setLocalError(null);
     clearError();
     try {
       await uploadFile(file);
+      // Reset input after successful upload
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch {
       // Error is handled in store
     }
@@ -74,7 +88,7 @@ export function FileUpload() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".xlsx,.xls,.csv,.tsv"
+          accept="image/*,.xlsx,.xls,.csv,.tsv"
           onChange={(e) => handleFileSelect(e.target.files)}
           style={{ display: "none" }}
           aria-label="Select file to upload"
@@ -85,7 +99,7 @@ export function FileUpload() {
         ) : (
           <>
             <p>Drop a file here or click to select</p>
-            <p id="file-upload-hint" className="hint">Supported: .xlsx, .xls, .csv, .tsv</p>
+            <p id="file-upload-hint" className="hint">Supported: .xlsx, .xls, .csv, .tsv, .png, .jpg, .jpeg, .gif, .webp, .bmp</p>
           </>
         )}
       </div>

@@ -341,7 +341,7 @@ export const api = {
 
   async estimateTokens(
     messages: { role: string; content: string }[],
-    model: string = "kimi-k2-0905-preview"
+    model: string = "kimi-k2.5"
   ): Promise<TokenEstimate> {
     const response = await fetch(`${API_BASE}/usage/estimate-tokens`, {
       method: "POST",
