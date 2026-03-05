@@ -26,6 +26,19 @@ export function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.has(ext);
 }
 
+// Supported data file extensions for text analysis
+const DATA_FILE_EXTENSIONS = new Set([
+  ".xlsx", ".xls", ".csv", ".tsv",  // Spreadsheets
+  ".md", ".markdown", ".txt",        // Text/Markdown
+  ".pdf", ".docx", ".doc",           // Documents
+  ".json",                            // JSON
+]);
+
+export function isDataFile(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  return DATA_FILE_EXTENSIONS.has(ext);
+}
+
 // Get appropriate temperature and top_p for different Kimi models
 function getModelParams(model: string): { temperature: number; topP: number } {
   // kimi-k2.5 has specific requirements
@@ -608,10 +621,22 @@ export class KimiService {
   private inferFileType(filename: string): string {
     const ext = path.extname(filename).toLowerCase();
     const mimeTypes: Record<string, string> = {
+      // Spreadsheets
       ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ".xls": "application/vnd.ms-excel",
       ".csv": "text/csv",
       ".tsv": "text/tab-separated-values",
+      // Text/Markdown
+      ".md": "text/markdown",
+      ".markdown": "text/markdown",
+      ".txt": "text/plain",
+      // Documents
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+      // JSON
+      ".json": "application/json",
+      // Images
       ".png": "image/png",
       ".jpg": "image/jpeg",
       ".jpeg": "image/jpeg",
