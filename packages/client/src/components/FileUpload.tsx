@@ -13,12 +13,18 @@ export function FileUpload() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    const validExtensions = [".xlsx", ".xls", ".csv", ".tsv", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+    const validExtensions = [
+      ".xlsx", ".xls", ".csv", ".tsv",           // Spreadsheets
+      ".md", ".markdown", ".txt",                 // Text/Markdown
+      ".pdf", ".docx", ".doc",                    // Documents
+      ".json",                                     // JSON
+      ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" // Images
+    ];
     const lastDotIndex = file.name.lastIndexOf(".");
     const ext = lastDotIndex >= 0 ? file.name.toLowerCase().substring(lastDotIndex) : "";
 
     if (!validExtensions.includes(ext)) {
-      setLocalError(`Invalid file type: ${ext || "none"}. Supported: .xlsx, .xls, .csv, .tsv, .png, .jpg, .jpeg, .gif, .webp, .bmp`);
+      setLocalError(`Invalid file type: ${ext || "none"}. Supported: Excel, CSV, Markdown, Text, PDF, Word, JSON, Images`);
       // Reset input so same file can be selected again
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -88,7 +94,7 @@ export function FileUpload() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.xlsx,.xls,.csv,.tsv"
+          accept="image/*,.xlsx,.xls,.csv,.tsv,.md,.markdown,.txt,.pdf,.docx,.doc,.json"
           onChange={(e) => handleFileSelect(e.target.files)}
           style={{ display: "none" }}
           aria-label="Select file to upload"
@@ -99,7 +105,7 @@ export function FileUpload() {
         ) : (
           <>
             <p>Drop a file here or click to select</p>
-            <p id="file-upload-hint" className="hint">Supported: .xlsx, .xls, .csv, .tsv, .png, .jpg, .jpeg, .gif, .webp, .bmp</p>
+            <p id="file-upload-hint" className="hint">Supported: Excel, CSV, Markdown, Text, PDF, Word, JSON, Images</p>
           </>
         )}
       </div>
