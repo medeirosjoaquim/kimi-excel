@@ -214,14 +214,14 @@ export function AttachmentButton() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv,.tsv,image/*"
+                accept=".xlsx,.xls,.csv,.tsv,.md,.markdown,.txt,.pdf,.docx,.doc,.json,image/*"
                 onChange={handleFileSelect}
                 hidden
                 aria-label="Select file to upload"
                 aria-describedby="file-types-hint"
               />
               <span id="file-types-hint" className="sr-only">
-                Supported file types: Excel (.xlsx, .xls), CSV (.csv, .tsv), and images (.png, .jpg, .jpeg, .gif, .webp, .bmp)
+                Supported file types: Excel, CSV, Markdown, Text, PDF, Word, JSON, and images
               </span>
 
               {files.length > 0 && (
@@ -283,7 +283,7 @@ export function AttachmentButton() {
               )}
 
               <div className="attachment-hint" id="file-limit-hint">
-                Supports: Excel (.xlsx, .xls), CSV (.csv, .tsv), Images (.png, .jpg, .jpeg, .gif, .webp, .bmp). Max 9 files per conversation (256k token limit)
+                Supports: Excel, CSV, Markdown, Text, PDF, Word, JSON, Images. Max 9 files per conversation (256k token limit)
               </div>
             </div>
           )}
