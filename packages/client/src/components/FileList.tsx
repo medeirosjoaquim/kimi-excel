@@ -63,16 +63,24 @@ export function FileList() {
         {files.map((file) => (
           <li
             key={file.id}
-            className={selectedFileId === file.id ? "selected" : ""}
-            onClick={() => handleSelect(file.id)}
-            onKeyDown={(e) => handleKeyDown(e, file.id)}
+            className={`${selectedFileId === file.id ? "selected" : ""} ${file.isExpired ? "expired" : ""}`}
+            onClick={() => !file.isExpired && handleSelect(file.id)}
+            onKeyDown={(e) => !file.isExpired && handleKeyDown(e, file.id)}
             role="button"
-            tabIndex={0}
+            tabIndex={file.isExpired ? -1 : 0}
             aria-pressed={selectedFileId === file.id}
-            aria-label={`${file.filename}, status: ${file.status}${selectedFileId === file.id ? ", selected" : ""}`}
+            aria-label={`${file.filename}, status: ${file.status}${file.isExpired ? ", expired" : ""}${selectedFileId === file.id ? ", selected" : ""}`}
+            aria-disabled={file.isExpired}
           >
             <span className="filename">{file.filename}</span>
-            <span className="status" aria-label={`Status: ${file.status}`}>{file.status}</span>
+            <span className="status" aria-label={`Status: ${file.status}`}>
+              {file.isExpired ? "expired" : file.status}
+            </span>
+            {file.isExpired && (
+              <span className="expired-badge" title="This file has expired and is no longer available on Kimi">
+                ⚠ Expired
+              </span>
+            )}
             <button
               className="delete-btn"
               onClick={(e) => handleDelete(e, file.id)}
