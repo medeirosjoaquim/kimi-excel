@@ -237,26 +237,35 @@ export function AttachmentButton() {
                       const attached = isAttached(file.id);
                       const displayName = getDisplayName(file.filename);
                       const deleting = isDeleting === file.id;
+                      const isExpired = file.isExpired;
                       return (
-                        <li 
-                          key={file.id} 
-                          className="file-list-row"
+                        <li
+                          key={file.id}
+                          className={`file-list-row ${isExpired ? "expired" : ""}`}
                           role="option"
                           aria-selected={attached}
                         >
-                          <label className={`file-select-item ${attached ? "selected" : ""}`}>
+                          <label className={`file-select-item ${attached ? "selected" : ""} ${isExpired ? "disabled" : ""}`}>
                             <input
                               type="checkbox"
                               checked={attached}
-                              onChange={() => handleToggleFile(file.id, file.filename)}
-                              disabled={deleting}
-                              aria-label={`Select ${displayName}`}
+                              onChange={() => !isExpired && handleToggleFile(file.id, file.filename)}
+                              disabled={deleting || isExpired}
+                              aria-label={`Select ${displayName}${isExpired ? " (expired)" : ""}`}
                             />
-                            <span className="file-icon" aria-hidden="true">{attached ? "✓" : "F"}</span>
-                            <span className="file-name" title={displayName}>
+                            <span className="file-icon" aria-hidden="true">
+                              {isExpired ? "⚠" : attached ? "✓" : "F"}
+                            </span>
+                            <span className="file-name" title={isExpired ? `${displayName} (expired)` : displayName}>
                               {displayName}
+                              {isExpired && <span className="expired-label"> (expired)</span>}
                             </span>
                           </label>
+                          {isExpired && (
+                            <span className="expired-notice" title="This file is no longer available on Kimi">
+                              Expired
+                            </span>
+                          )}
                           <button
                             className="file-delete-btn"
                             onClick={(e) => handleDeleteFile(e, file.id)}
