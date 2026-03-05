@@ -160,6 +160,7 @@ export interface FileListItem {
   status: string;
   createdAt?: number;
   bytes?: number;
+  isExpired?: boolean;
 }
 
 export interface GetFileResponse {
